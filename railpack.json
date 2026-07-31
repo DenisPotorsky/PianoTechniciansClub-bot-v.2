@@ -1,0 +1,17 @@
+{
+  "$schema": "https://railpack.com/schema.json",
+  "build": {
+    "buildAptPackages": ["sqlite3"],
+    "packages": {
+      "python": "3.11"
+    }
+  },
+  "deploy": {
+    "startCommand": "python run.py",
+    "variables": {
+      "LANG": "en_US.UTF-8",
+      "LC_ALL": "en_US.UTF-8"
+    },
+    "paths": ["/app/.venv/bin"]
+  }
+}
