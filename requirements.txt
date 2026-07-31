@@ -2,3 +2,5 @@ python-telegram-bot==20.7
 yookassa==3.0.0
 python-dotenv==1.0.1
 pytz==2024.1
+setuptools==69.0.0
+wheel==0.42.0
