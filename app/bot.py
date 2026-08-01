@@ -15,7 +15,7 @@ from repositories.subscription_repository import SubscriptionRepository
 from repositories.whitelist_repository import WhitelistRepository
 from handlers.menu_handler import MenuHandler
 from handlers.payment_handler import PaymentHandler
-from handlers.calculator_handler import CalculatorHandler
+from handlers.calculator_handler import CalculatorHandler  # НОВЫЙ ИМПОРТ
 from handlers.admin_handler import AdminHandler
 from models.whitelist import WhitelistRole
 from utils.logger import setup_logger
@@ -27,7 +27,6 @@ class PianoMasterBot:
     """Основной класс бота"""
 
     def __init__(self):
-        # Проверяем конфигурацию
         if not config.validate():
             logger.error("Configuration validation failed. Please check .env file")
             logger.error(f"BOT_TOKEN: {'✓' if config.BOT_TOKEN else '✗'}")
@@ -35,7 +34,6 @@ class PianoMasterBot:
             logger.error(f"YOOKASSA_SECRET_KEY: {'✓' if config.YOOKASSA_SECRET_KEY else '✗'}")
             raise ValueError("Invalid configuration")
 
-        # Инициализация базы данных
         try:
             self.db = Database(config.db_path)
             logger.info(f"Database connected: {config.db_path}")
@@ -43,12 +41,10 @@ class PianoMasterBot:
             logger.error(f"Failed to connect to database: {e}")
             raise
 
-        # Инициализация репозиториев
         self.user_repo = UserRepository(self.db)
         self.subscription_repo = SubscriptionRepository(self.db)
         self.whitelist_repo = WhitelistRepository(self.db)
 
-        # Инициализация сервисов
         self.user_service = UserService(self.user_repo)
         self.subscription_service = SubscriptionService(self.subscription_repo)
         self.whitelist_service = WhitelistService(self.whitelist_repo, self.user_repo)
@@ -61,31 +57,22 @@ class PianoMasterBot:
         )
         self.calculator_service = CalculatorService()
 
-        # Инициализация обработчиков
         self.menu_handler = MenuHandler(self.access_service, self.user_service)
         self.payment_handler = PaymentHandler(
             self.payment_service,
             self.subscription_service,
             self.user_service
         )
-        self.calculator_handler = CalculatorHandler(
-            self.calculator_service,
-            self.access_service,
-            self.user_service
-        )
+        self.calculator_handler = CalculatorHandler(self.access_service, self.user_service)  # НОВЫЙ ОБРАБОТЧИК
         self.admin_handler = AdminHandler(self.whitelist_service, self.user_service)
 
-        # Инициализация приложения
         self.app = Application.builder().token(config.BOT_TOKEN).build()
         self._setup_handlers()
-
-        # Проверяем и инициализируем белый список
         self._initialize_whitelist()
 
         logger.info("Bot initialized successfully")
 
     def _initialize_whitelist(self):
-        """Инициализация белого списка"""
         try:
             users = self.whitelist_service.get_all_whitelist_users()
 
@@ -136,6 +123,11 @@ class PianoMasterBot:
         self.app.add_handler(CommandHandler("start", self.menu_handler.handle))
         self.app.add_handler(CommandHandler("menu", self.menu_handler.handle))
         self.app.add_handler(CommandHandler("admin", self.admin_handler.handle))
+        self.app.add_handler(CommandHandler("calc", self.calculator_handler.handle))  # НОВАЯ КОМАНДА
+
+        # Калькулятор (ConversationHandler) - НОВОЕ
+        conv_handler = self.calculator_handler.get_conversation_handler()
+        self.app.add_handler(conv_handler)
 
         # Callback handlers
         self.app.add_handler(CallbackQueryHandler(self._handle_callback))
@@ -150,12 +142,6 @@ class PianoMasterBot:
             self.admin_handler.handle_remove_input
         ))
 
-        # Message handler для калькулятора
-        self.app.add_handler(MessageHandler(
-            filters.Regex(r'^[12]\s+[\d.]+'),
-            self.calculator_handler.calculate
-        ))
-
         # Message handler для отмены операций
         self.app.add_handler(MessageHandler(
             filters.Regex(r'^/cancel$'),
@@ -166,7 +152,6 @@ class PianoMasterBot:
         self.app.add_error_handler(self._error_handler)
 
     async def _handle_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик отмены операций"""
         user = update.effective_user
 
         if context.user_data.get('waiting_for_whitelist_add'):
@@ -196,11 +181,9 @@ class PianoMasterBot:
             )
 
     async def _error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик ошибок"""
         error_str = str(context.error)
         logger.error(f"Update {update} caused error: {error_str}")
 
-        # Обработка конфликта
         if "Conflict" in error_str:
             logger.error("⚠️ Конфликт бота! Возможно, запущен другой экземпляр.")
             try:
@@ -213,7 +196,6 @@ class PianoMasterBot:
                 logger.error(f"Error in error handler: {e}")
             return
 
-        # Обработка ошибок парсинга
         if "Can't parse entities" in error_str:
             logger.warning("⚠️ Ошибка форматирования текста. Используйте обычный текст.")
             try:
@@ -223,7 +205,6 @@ class PianoMasterBot:
                 pass
             return
 
-        # Обработка других ошибок
         try:
             if update and update.effective_user:
                 await context.bot.send_message(
@@ -234,7 +215,6 @@ class PianoMasterBot:
             logger.error(f"Error in error handler: {e}")
 
     async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик callback-запросов"""
         query = update.callback_query
         data = query.data
 
@@ -248,7 +228,9 @@ class PianoMasterBot:
             elif data.startswith("check_payment_"):
                 await self.payment_handler.check_payment(update, context)
             elif data == "calculator":
-                await self.calculator_handler.handle(update, context)
+                await self.calculator_handler.start_calculator(update, context)
+            elif data == "new_calculation":
+                await self.calculator_handler.start_calculator(update, context)
             elif data == "status":
                 await self._show_status(update, context)
             elif data == "help":
@@ -276,7 +258,6 @@ class PianoMasterBot:
                 pass
 
     async def _show_about(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает информацию о проекте (без Markdown)"""
         query = update.callback_query
         await query.answer()
 
@@ -287,7 +268,8 @@ class PianoMasterBot:
             "• Эксклюзивные материалы по ремонту и реставрации\n"
             "• Общение с ведущими мастерами\n"
             "• Калькулятор для изготовления басовых струн\n"
-            "• Закрытые мастер-классы и вебинары\n\n"
+            "• Закрытые мастер-классы и вебинары\n"
+            "• Доступ к редким чертежам и схемам\n\n"
             "Для кого:\n"
             "• Профессиональных мастеров\n"
             "• Техников по настройке\n"
@@ -309,29 +291,28 @@ class PianoMasterBot:
         )
 
     async def _show_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает помощь (без Markdown)"""
         query = update.callback_query
         await query.answer()
 
         user = update.effective_user
         is_admin = user.id in config.ADMIN_IDS
 
-        # Собираем текст построчно
         lines = [
-            "❓ Помощь по PianoMasterClub",
+            "❓ Помощь по PianoMaster Club",
             "",
             "🤖 Бот для фортепианных мастеров экстра-класса",
             "",
             "📋 Основные разделы:",
             "• 📖 О проекте — информация о клубе",
             "• 🎹 Присоединиться — оформление подписки",
-            "• 🔧 Калькулятор струн — расчет басовых струн",
+            "• 🧮 Калькулятор струн — пошаговый расчет басовых струн",
             "• 🔄 Статус доступа — проверка подписки/белого списка",
             "• 📢 Канал — закрытый канал мастеров",
             "• 💬 Чат — общение с коллегами",
             "",
             "📝 Команды:",
             "/start или /menu — Главное меню",
+            "/calc — Калькулятор струн (пошаговый режим)",
             "/cancel — Отмена текущей операции",
         ]
 
@@ -347,13 +328,13 @@ class PianoMasterBot:
         lines.extend([
             "",
             "💡 Советы:",
-            "• Для расчета струн введите: тип, керн, длина навивки, общий диаметр струны через пробел",
-            "• Пример: 1 1.2 850 2.5 — одинарная навивка",
-            "• Пример: 2 1.2 850 2.5 — двойная навивка",
+            "• Калькулятор работает пошагово — следуйте инструкциям",
+            "• Все данные вводятся в миллиметрах",
+            "• Для отмены используйте /cancel",
             "",
             "📧 Поддержка:",
-            "• Администратор: @DenPotorsky",
-            "• Email: denis-s2@yandex.ru",
+            "• Администратор: @piano_admin",
+            "• Email: support@pianoclub.com",
         ])
 
         help_text = "\n".join(lines)
@@ -372,7 +353,6 @@ class PianoMasterBot:
         )
 
     async def _show_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает статус доступа (без Markdown)"""
         query = update.callback_query
         await query.answer()
 
@@ -390,7 +370,6 @@ class PianoMasterBot:
 
         has_access, access_type = self.access_service.has_access(db_user)
         access_desc = self.access_service.get_access_description(db_user)
-
         is_admin = user.id in config.ADMIN_IDS
 
         lines = []
@@ -442,6 +421,7 @@ class PianoMasterBot:
                 InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
                 InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
             ])
+            keyboard.append([InlineKeyboardButton("🧮 Калькулятор", callback_data="calculator")])
 
         if is_admin:
             keyboard.append([InlineKeyboardButton("👑 Админ-панель", callback_data="admin_menu")])
@@ -454,7 +434,6 @@ class PianoMasterBot:
         )
 
     async def _check_expired_subscriptions(self):
-        """Фоновая проверка истекших подписок и белого списка"""
         while True:
             try:
                 expired_subscriptions = self.subscription_service.check_expired_subscriptions()
@@ -498,22 +477,18 @@ class PianoMasterBot:
                 await asyncio.sleep(300)
 
     async def run(self):
-        """Запуск бота"""
         if not config.validate():
             logger.error("Configuration validation failed. Please check .env file")
             return
 
-        # Удаляем вебхук при запуске
         try:
             await self.app.bot.delete_webhook()
             logger.info("✅ Webhook deleted")
         except Exception as e:
             logger.warning(f"Webhook deletion failed: {e}")
 
-        # Запускаем фоновый процесс проверки
         asyncio.create_task(self._check_expired_subscriptions())
 
-        # Запускаем бота
         logger.info("Starting PianoMaster Club Bot...")
         await self.app.initialize()
         await self.app.start()
@@ -521,6 +496,5 @@ class PianoMasterBot:
 
         logger.info("✅ Bot is running!")
 
-        # Держим бота активным
         while True:
             await asyncio.sleep(1)
