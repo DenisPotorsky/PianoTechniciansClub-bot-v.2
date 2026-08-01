@@ -318,7 +318,7 @@ class PianoMasterBot:
 
         # Собираем текст построчно
         lines = [
-            "❓ Помощь по PianoMaster Club",
+            "❓ Помощь по PianoMasterClub",
             "",
             "🤖 Бот для фортепианных мастеров экстра-класса",
             "",
@@ -352,8 +352,8 @@ class PianoMasterBot:
             "• Пример: 2 1.2 850 2.5 — двойная навивка",
             "",
             "📧 Поддержка:",
-            "• Администратор: @piano_admin",
-            "• Email: support@pianoclub.com",
+            "• Администратор: @DenPotorsky",
+            "• Email: denis-s2@yandex.ru",
         ])
 
         help_text = "\n".join(lines)
