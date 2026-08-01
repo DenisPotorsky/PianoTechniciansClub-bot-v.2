@@ -30,6 +30,7 @@ class CalculatorHandler(BaseHandler):
         return ConversationHandler(
             entry_points=[
                 CallbackQueryHandler(self.start_calculator, pattern="^calculator$"),
+                CallbackQueryHandler(self.new_calculation, pattern="^new_calculation$"),
                 CommandHandler("calc", self.start_calculator)
             ],
             states={
@@ -59,6 +60,17 @@ class CalculatorHandler(BaseHandler):
             allow_reentry=True
         )
 
+    async def new_calculation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Новый расчет - полный сброс"""
+        query = update.callback_query
+        await query.answer()
+
+        # Очищаем все данные пользователя
+        context.user_data.clear()
+
+        # Запускаем калькулятор заново
+        return await self.start_calculator(update, context)
+
     async def start_calculator(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Запуск калькулятора"""
         user = update.effective_user
@@ -85,6 +97,9 @@ class CalculatorHandler(BaseHandler):
                     ])
                 )
             return ConversationHandler.END
+
+        # Очищаем старые данные перед новым расчетом
+        context.user_data.clear()
 
         keyboard = InlineKeyboardMarkup([
             [
@@ -264,6 +279,18 @@ class CalculatorHandler(BaseHandler):
             total = context.user_data.get('total_diameter')
             winding_name = context.user_data.get('winding_name', '')
 
+            # Проверяем, что все данные есть
+            if winding_type is None or core is None or total is None:
+                await update.message.reply_text(
+                    "❌ Ошибка: данные не найдены.\n"
+                    "Начните расчет заново.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔄 Новый расчет", callback_data="new_calculation")],
+                        [InlineKeyboardButton("◀️ Меню", callback_data="menu")]
+                    ])
+                )
+                return ConversationHandler.END
+
             result = self.calculate_string(winding_type, core, total, length)
 
             result_text = self.format_result(
@@ -281,6 +308,7 @@ class CalculatorHandler(BaseHandler):
                 parse_mode="Markdown"
             )
 
+            # Очищаем данные после завершения расчета
             context.user_data.clear()
             return ConversationHandler.END
 
@@ -354,20 +382,12 @@ class CalculatorHandler(BaseHandler):
             query = update.callback_query
             await query.answer()
 
-            if query.data == "cancel":
-                await query.edit_message_text(
-                    "❌ Расчет отменен.",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("◀️ Меню", callback_data="menu")]
-                    ])
-                )
-            else:
-                await query.edit_message_text(
-                    "❌ Расчет отменен.",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("◀️ Меню", callback_data="menu")]
-                    ])
-                )
+            await query.edit_message_text(
+                "❌ Расчет отменен.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("◀️ Меню", callback_data="menu")]
+                ])
+            )
         elif update.message:
             await update.message.reply_text(
                 "❌ Расчет отменен.",
