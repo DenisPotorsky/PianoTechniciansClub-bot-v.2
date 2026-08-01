@@ -197,22 +197,33 @@ class PianoMasterBot:
 
     async def _error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик ошибок"""
-        logger.error(f"Update {update} caused error {context.error}")
-
         error_str = str(context.error)
+        logger.error(f"Update {update} caused error: {error_str}")
+
+        # Обработка конфликта
         if "Conflict" in error_str:
             logger.error("⚠️ Конфликт бота! Возможно, запущен другой экземпляр.")
             try:
                 if update and update.effective_user:
                     await context.bot.send_message(
                         chat_id=update.effective_user.id,
-                        text="⚠️ Бот уже запущен в другом экземпляре.\n"
-                             "Пожалуйста, остановите другие процессы и попробуйте снова."
+                        text="⚠️ Бот временно недоступен. Попробуйте позже."
                     )
             except Exception as e:
                 logger.error(f"Error in error handler: {e}")
             return
 
+        # Обработка ошибок парсинга
+        if "Can't parse entities" in error_str:
+            logger.warning("⚠️ Ошибка форматирования текста. Используйте обычный текст.")
+            try:
+                if update and update.callback_query:
+                    await update.callback_query.answer("Ошибка форматирования")
+            except Exception:
+                pass
+            return
+
+        # Обработка других ошибок
         try:
             if update and update.effective_user:
                 await context.bot.send_message(
@@ -265,39 +276,104 @@ class PianoMasterBot:
                 pass
 
     async def _show_about(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает информацию о проекте"""
+        """Показывает информацию о проекте (без Markdown)"""
         query = update.callback_query
         await query.answer()
 
         about_text = (
-            "🎹 **О проекте**\n\n"
-            "PianoMasterClub — это закрытое сообщество фортепианных мастеров экстра-класса.\n\n"
-            "**Что мы предлагаем:**\n"
-            "• 📢 Эксклюзивные материалы по ремонту и реставрации\n"
-            "• 💬 Общение с ведущими мастерами\n"
-            "• 🔧 Калькулятор для изготовления басовых струн\n"
-            "• 🎓 Закрытые мастер-классы и вебинары\n"
-            "**Для кого:**\n"
+            "🎹 О проекте\n\n"
+            "PianoMaster Club — это закрытое сообщество фортепианных мастеров экстра-класса.\n\n"
+            "Что мы предлагаем:\n"
+            "• Эксклюзивные материалы по ремонту и реставрации\n"
+            "• Общение с ведущими мастерами\n"
+            "• Калькулятор для изготовления басовых струн\n"
+            "• Закрытые мастер-классы и вебинары\n"
+            "• Доступ к редким чертежам и схемам\n\n"
+            "Для кого:\n"
             "• Профессиональных мастеров\n"
             "• Техников по настройке\n"
             "• Реставраторов фортепиано\n"
             "• Производителей инструментов"
         )
 
+        keyboard = [
+            [
+                InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
+                InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
+            ],
+            [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
+        ]
+
         await query.edit_message_text(
             about_text,
-            reply_markup=InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
-                    InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
-                ],
-                [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
-            ]),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def _show_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показывает помощь (без Markdown)"""
+        query = update.callback_query
+        await query.answer()
+
+        user = update.effective_user
+        is_admin = user.id in config.ADMIN_IDS
+
+        # Собираем текст построчно
+        lines = [
+            "❓ Помощь по PianoMaster Club",
+            "",
+            "🤖 Бот для фортепианных мастеров экстра-класса",
+            "",
+            "📋 Основные разделы:",
+            "• 📖 О проекте — информация о клубе",
+            "• 🎹 Присоединиться — оформление подписки",
+            "• 🔧 Калькулятор струн — расчет басовых струн",
+            "• 🔄 Статус доступа — проверка подписки/белого списка",
+            "• 📢 Канал — закрытый канал мастеров",
+            "• 💬 Чат — общение с коллегами",
+            "",
+            "📝 Команды:",
+            "/start или /menu — Главное меню",
+            "/cancel — Отмена текущей операции",
+        ]
+
+        if is_admin:
+            lines.extend([
+                "",
+                "👑 Администратор:",
+                "/admin — Панель управления",
+                "• Добавление/удаление из белого списка",
+                "• Просмотр статистики",
+            ])
+
+        lines.extend([
+            "",
+            "💡 Советы:",
+            "• Для расчета струн введите: тип сердечник длина общий_диаметр",
+            "• Пример: 1 1.2 850 2.5 — одинарная навивка",
+            "• Пример: 2 1.2 850 2.5 — двойная навивка",
+            "",
+            "📧 Поддержка:",
+            "• Администратор: @piano_admin",
+            "• Email: support@pianoclub.com",
+        ])
+
+        help_text = "\n".join(lines)
+
+        keyboard = [
+            [
+                InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
+                InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
+            ],
+            [InlineKeyboardButton("◀️ Назад в меню", callback_data="menu")]
+        ]
+
+        await query.edit_message_text(
+            help_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     async def _show_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает статус доступа"""
+        """Показывает статус доступа (без Markdown)"""
         query = update.callback_query
         await query.answer()
 
@@ -318,38 +394,45 @@ class PianoMasterBot:
 
         is_admin = user.id in config.ADMIN_IDS
 
+        lines = []
+
         if has_access:
-            status_text = f"✅ **Доступ открыт**\n\n{access_desc}\n\n"
+            lines.append("✅ Доступ открыт")
+            lines.append("")
+            lines.append(access_desc)
+            lines.append("")
 
             if access_type.startswith("whitelist_"):
                 role_str = access_type.replace("whitelist_", "")
                 try:
                     role = WhitelistRole(role_str)
-                    status_text += f"Роль: {role.display_name}\n"
+                    lines.append(f"Роль: {role.display_name}")
 
                     entry = self.whitelist_service.get_by_user(db_user)
                     if entry and entry.expires_at:
-                        status_text += f"Действует до: {entry.expires_at.strftime('%d.%m.%Y %H:%M')}\n"
+                        lines.append(f"Действует до: {entry.expires_at.strftime('%d.%m.%Y %H:%M')}")
                     if entry and entry.reason:
-                        status_text += f"Причина: {entry.reason}\n"
+                        lines.append(f"Причина: {entry.reason}")
                 except ValueError:
                     pass
             else:
                 subscription = self.subscription_service.get_by_user(db_user)
                 if subscription:
-                    status_text += (
-                        f"Активирована: {subscription.starts_at.strftime('%d.%m.%Y')}\n"
-                        f"Истекает: {subscription.expires_at.strftime('%d.%m.%Y')}\n"
-                        f"Осталось дней: {subscription.days_left}"
-                    )
+                    lines.append(f"Активирована: {subscription.starts_at.strftime('%d.%m.%Y')}")
+                    lines.append(f"Истекает: {subscription.expires_at.strftime('%d.%m.%Y')}")
+                    lines.append(f"Осталось дней: {subscription.days_left}")
         else:
-            status_text = (
-                "❌ **Доступ закрыт**\n\n"
-                "Для доступа к функциям клуба необходимо:\n"
-                "• Оформить подписку\n"
-                "• Или быть в белом списке\n\n"
-                f"Ваш ID: `{user.id}`"
-            )
+            lines.extend([
+                "❌ Доступ закрыт",
+                "",
+                "Для доступа к функциям клуба необходимо:",
+                "• Оформить подписку",
+                "• Или быть в белом списке",
+                "",
+                f"Ваш ID: {user.id}"
+            ])
+
+        status_text = "\n".join(lines)
 
         keyboard = []
         if not has_access:
@@ -368,47 +451,7 @@ class PianoMasterBot:
 
         await query.edit_message_text(
             status_text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-
-    async def _show_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает помощь"""
-        query = update.callback_query
-        await query.answer()
-
-        user = update.effective_user
-        is_admin = user.id in config.ADMIN_IDS
-
-        help_text = (
-            "❓ **Помощь**\n\n"
-            "Если у вас возникли вопросы:\n"
-            "• Обратитесь к администратору: @piano_admin\n"
-            "• Напишите в поддержку: support@pianoclub.com\n\n"
-            "**Доступные команды:**\n"
-            "/start или /menu - Главное меню\n"
-            "/cancel - Отмена текущей операции\n"
-        )
-
-        if is_admin:
-            help_text += "/admin - Админ-панель\n\n"
-            help_text += "**Админ-команды:**\n"
-            help_text += "• Добавление участников в белый список\n"
-            help_text += "• Удаление из белого списка\n"
-            help_text += "• Просмотр статистики\n"
-
-        keyboard = [
-            [
-                InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
-                InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
-            ],
-            [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
-        ]
-
-        await query.edit_message_text(
-            help_text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     async def _check_expired_subscriptions(self):
@@ -425,10 +468,9 @@ class PianoMasterBot:
                             try:
                                 await self.app.bot.send_message(
                                     user.telegram_id,
-                                    "⏰ **Подписка истекла**\n\n"
-                                    "Ваш доступ к PianoMasterClub завершен.\n"
-                                    "Для продления нажмите /menu и выберите «Присоединиться»",
-                                    parse_mode="Markdown"
+                                    "⏰ Подписка истекла\n\n"
+                                    "Ваш доступ к PianoMaster Club завершен.\n"
+                                    "Для продления нажмите /menu и выберите «Присоединиться»"
                                 )
                             except Exception as e:
                                 logger.error(f"Failed to notify user {user.telegram_id}: {e}")
@@ -443,10 +485,9 @@ class PianoMasterBot:
                             try:
                                 await self.app.bot.send_message(
                                     user.telegram_id,
-                                    "⏰ **Временный доступ истек**\n\n"
+                                    "⏰ Временный доступ истек\n\n"
                                     "Ваш доступ по белому списку завершен.\n"
-                                    "Для продолжения оформите подписку или обратитесь к администратору.",
-                                    parse_mode="Markdown"
+                                    "Для продолжения оформите подписку или обратитесь к администратору."
                                 )
                             except Exception as e:
                                 logger.error(f"Failed to notify whitelist user {user.telegram_id}: {e}")
@@ -463,8 +504,17 @@ class PianoMasterBot:
             logger.error("Configuration validation failed. Please check .env file")
             return
 
+        # Удаляем вебхук при запуске
+        try:
+            await self.app.bot.delete_webhook()
+            logger.info("✅ Webhook deleted")
+        except Exception as e:
+            logger.warning(f"Webhook deletion failed: {e}")
+
+        # Запускаем фоновый процесс проверки
         asyncio.create_task(self._check_expired_subscriptions())
 
+        # Запускаем бота
         logger.info("Starting PianoMaster Club Bot...")
         await self.app.initialize()
         await self.app.start()
@@ -472,5 +522,6 @@ class PianoMasterBot:
 
         logger.info("✅ Bot is running!")
 
+        # Держим бота активным
         while True:
             await asyncio.sleep(1)
