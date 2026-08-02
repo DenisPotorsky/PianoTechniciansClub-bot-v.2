@@ -15,7 +15,7 @@ def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboard
                 InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
                 InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
             ],
-            [InlineKeyboardButton("🧮 Калькулятор для изготовления басовых струн", callback_data="calculator")],
+            [InlineKeyboardButton("🧮 Калькулятор басовых струн", callback_data="calculator")],
             [InlineKeyboardButton("🔄 Статус доступа", callback_data="status")]
         ])
 
