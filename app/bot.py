@@ -263,13 +263,12 @@ class PianoMasterBot:
 
         about_text = (
             "🎹 О проекте\n\n"
-            "PianoMaster Club — это закрытое сообщество фортепианных мастеров экстра-класса.\n\n"
+            "PianoMasterClub — это закрытое сообщество фортепианных мастеров экстра-класса.\n\n"
             "Что мы предлагаем:\n"
             "• Эксклюзивные материалы по ремонту и реставрации\n"
             "• Общение с ведущими мастерами\n"
             "• Калькулятор для изготовления басовых струн\n"
-            "• Закрытые мастер-классы и вебинары\n"
-            "• Доступ к редким чертежам и схемам\n\n"
+            "• Закрытые мастер-классы и вебинары\n\n"
             "Для кого:\n"
             "• Профессиональных мастеров\n"
             "• Техников по настройке\n"
@@ -298,7 +297,7 @@ class PianoMasterBot:
         is_admin = user.id in config.ADMIN_IDS
 
         lines = [
-            "❓ Помощь по PianoMaster Club",
+            "❓ Помощь по PianoMasterClub",
             "",
             "🤖 Бот для фортепианных мастеров экстра-класса",
             "",
@@ -333,8 +332,8 @@ class PianoMasterBot:
             "• Для отмены используйте /cancel",
             "",
             "📧 Поддержка:",
-            "• Администратор: @piano_admin",
-            "• Email: support@pianoclub.com",
+            "• Администратор: @DenPotorsky",
+            "• Email: denis-s2@yandex.ru",
         ])
 
         help_text = "\n".join(lines)
@@ -447,7 +446,7 @@ class PianoMasterBot:
                                 await self.app.bot.send_message(
                                     user.telegram_id,
                                     "⏰ Подписка истекла\n\n"
-                                    "Ваш доступ к PianoMaster Club завершен.\n"
+                                    "Ваш доступ к PianoMasterClub завершен.\n"
                                     "Для продления нажмите /menu и выберите «Присоединиться»"
                                 )
                             except Exception as e:

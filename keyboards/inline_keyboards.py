@@ -6,7 +6,7 @@ from app.config import config
 def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboardMarkup:
     """Создает главную клавиатуру"""
     keyboard: List[List[InlineKeyboardButton]] = [
-        [InlineKeyboardButton("📖 О проекте", callback_data="about")]
+        [InlineKeyboardButton("📖 Зачем всё это", callback_data="about")]
     ]
 
     if has_access:
@@ -15,7 +15,7 @@ def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboard
                 InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
                 InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
             ],
-            [InlineKeyboardButton("🧮 Калькулятор струн", callback_data="calculator")],
+            [InlineKeyboardButton("🧮 Калькулятор для изготовления басовых струн", callback_data="calculator")],
             [InlineKeyboardButton("🔄 Статус доступа", callback_data="status")]
         ])
 
@@ -23,7 +23,7 @@ def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboard
             role = access_type.replace("whitelist_", "")
             if role in ["founder", "expert"]:
                 keyboard.append(
-                    [InlineKeyboardButton("👑 Управление", callback_data="admin_menu")]
+                    [InlineKeyboardButton("👑 Админка", callback_data="admin_menu")]
                 )
     else:
         keyboard.append([InlineKeyboardButton("🎹 Присоединиться", callback_data="subscribe")])

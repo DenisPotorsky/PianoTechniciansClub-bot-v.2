@@ -366,13 +366,11 @@ class CalculatorHandler(BaseHandler):
         if result['type'] == 'single':
             text += f"• 🟡 Диаметр меди: **{result['copper_diam']} мм**\n"
             text += f"• 📏 Длина меди: **{result['copper_length']} мм**\n"
-            text += f"• 📐 Общая длина: **{result['total_length']} мм**\n"
         else:
             text += f"• 🟡 Диаметр меди (первичный): **{result['copper_first']} мм**\n"
             text += f"• 🟠 Диаметр меди (вторичный): **{result['copper_second']} мм**\n"
             text += f"• 📏 Длина меди (первичная): **{result['length_primary']} мм**\n"
             text += f"• 📐 Длина меди (вторичная): **{result['length_secondary']} мм**\n"
-            text += f"• 📊 Общая длина: **{result['total_length']} мм**\n"
 
         return text
 

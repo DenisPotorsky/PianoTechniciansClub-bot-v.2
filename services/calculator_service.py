@@ -83,8 +83,7 @@ class CalculatorService:
             return (
                 f"📊 **Результат расчета (одинарная навивка)**\n\n"
                 f"Диаметр меди: {result['diam_primary']} мм\n"
-                f"Длина меди: {result['length_primary']} мм\n"
-                f"Общая длина: {result['total_length']} мм"
+                f"Длина меди: {result['length_primary']} мм"
             )
         else:
             return (
@@ -92,6 +91,5 @@ class CalculatorService:
                 f"Диаметр первичной меди: {result['diam_primary']} мм\n"
                 f"Диаметр вторичной меди: {result['diam_secondary']} мм\n"
                 f"Длина первичной меди: {result['length_primary']} мм\n"
-                f"Длина вторичной меди: {result['length_secondary']} мм\n"
-                f"Общая длина: {result['total_length']} мм"
+                f"Длина вторичной меди: {result['length_secondary']} мм"
             )
