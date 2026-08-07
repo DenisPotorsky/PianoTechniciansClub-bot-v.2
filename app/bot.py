@@ -1,7 +1,18 @@
+"""
+Главный класс бота PianoMaster Club
+"""
+
 import asyncio
 import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
+)
 from app.config import config
 from app.database import Database
 from services.user_service import UserService
@@ -15,8 +26,11 @@ from repositories.subscription_repository import SubscriptionRepository
 from repositories.whitelist_repository import WhitelistRepository
 from handlers.menu_handler import MenuHandler
 from handlers.payment_handler import PaymentHandler
-from handlers.calculator_handler import CalculatorHandler  # НОВЫЙ ИМПОРТ
+from handlers.calculator_handler import CalculatorHandler
 from handlers.admin_handler import AdminHandler
+from handlers.age import AgeHandler  # НОВЫЙ ИМПОРТ
+from age_detector import AgeDetector  # НОВЫЙ ИМПОРТ
+from age_database import AgeDatabase  # НОВЫЙ ИМПОРТ
 from models.whitelist import WhitelistRole
 from utils.logger import setup_logger
 
@@ -27,6 +41,11 @@ class PianoMasterBot:
     """Основной класс бота"""
 
     def __init__(self):
+        """
+        Инициализация бота: проверка конфигурации, подключение к БД,
+        инициализация сервисов, репозиториев и обработчиков.
+        """
+        # Проверка конфигурации
         if not config.validate():
             logger.error("Configuration validation failed. Please check .env file")
             logger.error(f"BOT_TOKEN: {'✓' if config.BOT_TOKEN else '✗'}")
@@ -34,6 +53,7 @@ class PianoMasterBot:
             logger.error(f"YOOKASSA_SECRET_KEY: {'✓' if config.YOOKASSA_SECRET_KEY else '✗'}")
             raise ValueError("Invalid configuration")
 
+        # Подключение к основной базе данных
         try:
             self.db = Database(config.db_path)
             logger.info(f"Database connected: {config.db_path}")
@@ -41,10 +61,12 @@ class PianoMasterBot:
             logger.error(f"Failed to connect to database: {e}")
             raise
 
+        # Инициализация репозиториев
         self.user_repo = UserRepository(self.db)
         self.subscription_repo = SubscriptionRepository(self.db)
         self.whitelist_repo = WhitelistRepository(self.db)
 
+        # Инициализация сервисов
         self.user_service = UserService(self.user_repo)
         self.subscription_service = SubscriptionService(self.subscription_repo)
         self.whitelist_service = WhitelistService(self.whitelist_repo, self.user_repo)
@@ -57,15 +79,30 @@ class PianoMasterBot:
         )
         self.calculator_service = CalculatorService()
 
+        # Инициализация базы данных для определения возраста фортепиано
+        AGE_DB_PATH = "piano_age.db"  # Файл в корне проекта
+        try:
+            self.age_db = AgeDatabase(AGE_DB_PATH)
+            logger.info(f"Age database connected: {AGE_DB_PATH}")
+        except Exception as e:
+            logger.error(f"Failed to connect to age database: {e}")
+            self.age_db = None
+
+        self.age_detector = AgeDetector(self.age_db) if self.age_db else None
+
+        # Инициализация обработчиков
         self.menu_handler = MenuHandler(self.access_service, self.user_service)
         self.payment_handler = PaymentHandler(
             self.payment_service,
             self.subscription_service,
             self.user_service
         )
-        self.calculator_handler = CalculatorHandler(self.access_service, self.user_service)  # НОВЫЙ ОБРАБОТЧИК
+        self.calculator_handler = CalculatorHandler(self.access_service, self.user_service)
         self.admin_handler = AdminHandler(self.whitelist_service, self.user_service)
+        self.age_handler = AgeHandler(self.age_detector, self.access_service,
+                                      self.user_service) if self.age_detector else None
 
+        # Инициализация приложения Telegram
         self.app = Application.builder().token(config.BOT_TOKEN).build()
         self._setup_handlers()
         self._initialize_whitelist()
@@ -73,6 +110,10 @@ class PianoMasterBot:
         logger.info("Bot initialized successfully")
 
     def _initialize_whitelist(self):
+        """
+        Инициализация белого списка: если он пуст, автоматически добавляются
+        администраторы, указанные в конфигурации.
+        """
         try:
             users = self.whitelist_service.get_all_whitelist_users()
 
@@ -118,16 +159,27 @@ class PianoMasterBot:
             logger.error(f"Error initializing whitelist: {e}")
 
     def _setup_handlers(self):
-        """Настройка обработчиков"""
+        """
+        Настройка всех обработчиков команд и callback-запросов.
+        """
         # Команды
         self.app.add_handler(CommandHandler("start", self.menu_handler.handle))
         self.app.add_handler(CommandHandler("menu", self.menu_handler.handle))
         self.app.add_handler(CommandHandler("admin", self.admin_handler.handle))
-        self.app.add_handler(CommandHandler("calc", self.calculator_handler.handle))  # НОВАЯ КОМАНДА
+        self.app.add_handler(CommandHandler("calc", self.calculator_handler.handle))
 
-        # Калькулятор (ConversationHandler) - НОВОЕ
+        # Добавляем команду /age, если есть обработчик
+        if self.age_handler:
+            self.app.add_handler(CommandHandler("age", self.age_handler.handle))
+
+        # Калькулятор (ConversationHandler)
         conv_handler = self.calculator_handler.get_conversation_handler()
         self.app.add_handler(conv_handler)
+
+        # Возраст фортепиано (ConversationHandler)
+        if self.age_handler:
+            age_conv_handler = self.age_handler.get_conversation_handler()
+            self.app.add_handler(age_conv_handler)
 
         # Callback handlers
         self.app.add_handler(CallbackQueryHandler(self._handle_callback))
@@ -152,6 +204,9 @@ class PianoMasterBot:
         self.app.add_error_handler(self._error_handler)
 
     async def _handle_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Обработчик команды /cancel для отмены текущих операций.
+        """
         user = update.effective_user
 
         if context.user_data.get('waiting_for_whitelist_add'):
@@ -181,29 +236,27 @@ class PianoMasterBot:
             )
 
     async def _error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Глобальный обработчик ошибок.
+        """
         error_str = str(context.error)
-        logger.error(f"Update {update} caused error: {error_str}")
 
+        # Игнорируем Conflict — это не критично для работы
         if "Conflict" in error_str:
-            logger.error("⚠️ Конфликт бота! Возможно, запущен другой экземпляр.")
-            try:
-                if update and update.effective_user:
-                    await context.bot.send_message(
-                        chat_id=update.effective_user.id,
-                        text="⚠️ Бот временно недоступен. Попробуйте позже."
-                    )
-            except Exception as e:
-                logger.error(f"Error in error handler: {e}")
+            logger.debug(f"Ignored Conflict error: {error_str}")
             return
 
+        # Игнорируем ошибки парсинга Markdown
         if "Can't parse entities" in error_str:
-            logger.warning("⚠️ Ошибка форматирования текста. Используйте обычный текст.")
+            logger.warning(f"Markdown parse error: {error_str}")
             try:
                 if update and update.callback_query:
                     await update.callback_query.answer("Ошибка форматирования")
             except Exception:
                 pass
             return
+
+        logger.error(f"Update {update} caused error: {error_str}")
 
         try:
             if update and update.effective_user:
@@ -215,6 +268,9 @@ class PianoMasterBot:
             logger.error(f"Error in error handler: {e}")
 
     async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Обработчик всех callback-запросов от кнопок.
+        """
         query = update.callback_query
         data = query.data
 
@@ -230,7 +286,9 @@ class PianoMasterBot:
             elif data == "calculator":
                 await self.calculator_handler.start_calculator(update, context)
             elif data == "new_calculation":
-                await self.calculator_handler.start_calculator(update, context)
+                await self.calculator_handler.new_calculation(update, context)
+            elif data == "age" and self.age_handler:
+                await self.age_handler.start_age(update, context)
             elif data == "status":
                 await self._show_status(update, context)
             elif data == "help":
@@ -258,20 +316,26 @@ class PianoMasterBot:
                 pass
 
     async def _show_about(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Показывает информацию о проекте.
+        """
         query = update.callback_query
         await query.answer()
 
         about_text = (
-            "🎹 Зачем всё это\n\n"
-            "PianoMasterClub — это закрытое сообщество фортепианных мастеров экстра-класса.\n\n"
+            "🎹 О проекте\n\n"
+            "PianoMaster Club — это закрытое сообщество фортепианных мастеров экстра-класса.\n\n"
             "Что мы предлагаем:\n"
             "• Эксклюзивные материалы по ремонту и реставрации\n"
             "• Общение с ведущими мастерами\n"
             "• Калькулятор для изготовления басовых струн\n"
-            "• Закрытые мастер-классы и вебинары\n\n"
+            "• Определение возраста фортепиано по серийному номеру\n"
+            "• Закрытые мастер-классы и вебинары\n"
+            "• Доступ к редким чертежам и схемам\n\n"
             "Для кого:\n"
-            "• Профессиональных мастеров-реставраторов\n"
-            "• Концертных техников\n"
+            "• Профессиональных мастеров\n"
+            "• Техников по настройке\n"
+            "• Реставраторов фортепиано\n"
             "• Производителей инструментов"
         )
 
@@ -289,6 +353,9 @@ class PianoMasterBot:
         )
 
     async def _show_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Показывает справочную информацию.
+        """
         query = update.callback_query
         await query.answer()
 
@@ -296,7 +363,7 @@ class PianoMasterBot:
         is_admin = user.id in config.ADMIN_IDS
 
         lines = [
-            "❓ Помощь по PianoMasterClub",
+            "❓ Помощь по PianoMaster Club",
             "",
             "🤖 Бот для фортепианных мастеров экстра-класса",
             "",
@@ -304,6 +371,7 @@ class PianoMasterBot:
             "• 📖 О проекте — информация о клубе",
             "• 🎹 Присоединиться — оформление подписки",
             "• 🧮 Калькулятор струн — пошаговый расчет басовых струн",
+            "• 📅 Возраст фортепиано — определение года выпуска по серийному номеру",
             "• 🔄 Статус доступа — проверка подписки/белого списка",
             "• 📢 Канал — закрытый канал мастеров",
             "• 💬 Чат — общение с коллегами",
@@ -311,6 +379,7 @@ class PianoMasterBot:
             "📝 Команды:",
             "/start или /menu — Главное меню",
             "/calc — Калькулятор струн (пошаговый режим)",
+            "/age — Определение возраста фортепиано",
             "/cancel — Отмена текущей операции",
         ]
 
@@ -327,12 +396,13 @@ class PianoMasterBot:
             "",
             "💡 Советы:",
             "• Калькулятор работает пошагово — следуйте инструкциям",
-            "• Все данные вводятся в миллиметрах",
+            "• Для определения возраста введите бренд и серийный номер",
+            "• Серийный номер можно вводить с буквами (цифры извлекаются автоматически)",
             "• Для отмены используйте /cancel",
             "",
             "📧 Поддержка:",
-            "• Администратор: @DenPotorsky",
-            "• Email: denis-s2@yandex.ru",
+            "• Администратор: @piano_admin",
+            "• Email: support@pianoclub.com",
         ])
 
         help_text = "\n".join(lines)
@@ -351,6 +421,9 @@ class PianoMasterBot:
         )
 
     async def _show_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Показывает статус доступа пользователя.
+        """
         query = update.callback_query
         await query.answer()
 
@@ -420,6 +493,7 @@ class PianoMasterBot:
                 InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
             ])
             keyboard.append([InlineKeyboardButton("🧮 Калькулятор", callback_data="calculator")])
+            keyboard.append([InlineKeyboardButton("📅 Возраст фортепиано", callback_data="age")])
 
         if is_admin:
             keyboard.append([InlineKeyboardButton("👑 Админ-панель", callback_data="admin_menu")])
@@ -432,8 +506,13 @@ class PianoMasterBot:
         )
 
     async def _check_expired_subscriptions(self):
+        """
+        Фоновый процесс для проверки истекших подписок и записей белого списка.
+        Запускается в отдельной задаче и проверяет каждые 60 минут.
+        """
         while True:
             try:
+                # Проверка истекших подписок
                 expired_subscriptions = self.subscription_service.check_expired_subscriptions()
                 if expired_subscriptions:
                     logger.info(f"Deactivated {len(expired_subscriptions)} expired subscriptions")
@@ -445,12 +524,13 @@ class PianoMasterBot:
                                 await self.app.bot.send_message(
                                     user.telegram_id,
                                     "⏰ Подписка истекла\n\n"
-                                    "Ваш доступ к PianoMasterClub завершен.\n"
+                                    "Ваш доступ к PianoMaster Club завершен.\n"
                                     "Для продления нажмите /menu и выберите «Присоединиться»"
                                 )
                             except Exception as e:
                                 logger.error(f"Failed to notify user {user.telegram_id}: {e}")
 
+                # Проверка истекших записей в белом списке
                 expired_whitelist = self.whitelist_service.check_expired_entries()
                 if expired_whitelist:
                     logger.info(f"Deactivated {len(expired_whitelist)} expired whitelist entries")
@@ -468,25 +548,32 @@ class PianoMasterBot:
                             except Exception as e:
                                 logger.error(f"Failed to notify whitelist user {user.telegram_id}: {e}")
 
+                # Пауза перед следующей проверкой (60 минут)
                 await asyncio.sleep(3600)
 
             except Exception as e:
                 logger.error(f"Error in subscription checker: {e}")
-                await asyncio.sleep(300)
+                await asyncio.sleep(300)  # При ошибке ждём 5 минут и пробуем снова
 
     async def run(self):
+        """
+        Запуск бота: удаление вебхука, запуск фоновых задач и polling.
+        """
         if not config.validate():
             logger.error("Configuration validation failed. Please check .env file")
             return
 
+        # Удаление вебхука для предотвращения конфликтов
         try:
             await self.app.bot.delete_webhook()
             logger.info("✅ Webhook deleted")
         except Exception as e:
             logger.warning(f"Webhook deletion failed: {e}")
 
+        # Запуск фоновой проверки подписок
         asyncio.create_task(self._check_expired_subscriptions())
 
+        # Запуск бота
         logger.info("Starting PianoMaster Club Bot...")
         await self.app.initialize()
         await self.app.start()
@@ -494,5 +581,6 @@ class PianoMasterBot:
 
         logger.info("✅ Bot is running!")
 
+        # Бесконечный цикл для поддержания работы
         while True:
             await asyncio.sleep(1)
