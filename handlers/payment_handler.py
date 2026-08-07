@@ -1,7 +1,8 @@
 """
-Обработчик платежей и пробного периода
+Обработчик платежей и пробного периода (автоматический доступ)
 """
 
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from handlers.base_handler import BaseHandler
@@ -9,11 +10,13 @@ from services.payment_service import PaymentService
 from services.subscription_service import SubscriptionService
 from services.user_service import UserService
 from app.config import config
-from keyboards.inline_keyboards import get_subscription_keyboard, get_subscription_success_keyboard
+from keyboards.inline_keyboards import get_subscription_success_keyboard
+
+logger = logging.getLogger(__name__)
 
 
 class PaymentHandler(BaseHandler):
-    """Обработчик платежей с поддержкой пробного периода"""
+    """Обработчик платежей с автоматической активацией доступа"""
 
     def __init__(self, payment_service: PaymentService,
                  subscription_service: SubscriptionService,
@@ -23,7 +26,7 @@ class PaymentHandler(BaseHandler):
         self.user_service = user_service
 
     async def handle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Начало процесса оплаты или активация пробного периода"""
+        """Начало процесса получения доступа (автоматически)"""
         query = update.callback_query
         await query.answer()
 
@@ -38,48 +41,62 @@ class PaymentHandler(BaseHandler):
         # Проверяем, есть ли уже подписка
         subscription = self.subscription_service.get_by_user(db_user)
 
+        # Если подписка уже активна — показываем статус
+        if subscription and subscription.is_active and not subscription.is_expired:
+            status_text = "✅ У вас уже есть активный доступ!"
+            if subscription.is_trial:
+                status_text += f"\n\n🔰 Пробный период: осталось {subscription.trial_days_left} дн."
+                status_text += f"\n📅 Действует до: {subscription.trial_end.strftime('%d.%m.%Y')}"
+            else:
+                status_text += f"\n\n📅 Действует до: {subscription.expires_at.strftime('%d.%m.%Y')}"
+                status_text += f"\n⏳ Осталось: {subscription.days_left} дн."
+
+            await query.edit_message_text(
+                status_text,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("◀️ Меню", callback_data="menu")]
+                ])
+            )
+            return
+
         # Проверяем, доступен ли пробный период
         can_start_trial = not subscription or subscription.has_trial_available
 
-        keyboard = get_subscription_keyboard() if can_start_trial else InlineKeyboardMarkup([
-            [InlineKeyboardButton("💳 Оформить подписку", callback_data="pay_subscription")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
-        ])
-
-        text = (
-            "🎹 **PianoMaster Club — Получение доступа**\n\n"
-            "Выберите способ получения доступа:\n\n"
-        )
+        keyboard = []
+        text = "🎹 **PianoMaster Club — Получение доступа**\n\n"
+        text += "Выберите способ получения доступа:\n\n"
 
         if can_start_trial:
             text += (
                 "🔰 **Пробный период 7 дней** — бесплатно!\n"
-                "• Все функции клуба\n"
+                "• Полный доступ ко всем функциям\n"
                 "• Доступ к каналу и чату\n"
                 "• Калькулятор струн\n"
                 "• Определение возраста фортепиано\n\n"
             )
+            keyboard.append([InlineKeyboardButton("🔰 Начать пробный период", callback_data="start_trial")])
 
         text += (
             f"💎 **Полная подписка** — {config.SUBSCRIPTION_PRICE} ₽ / {config.SUBSCRIPTION_DAYS} дней\n"
             "• Все функции пробного периода\n"
             "• Продолжение доступа после пробного периода\n\n"
-            "📢 После получения доступа вам станут доступны канал и чат мастеров!"
         )
+        keyboard.append([InlineKeyboardButton("💳 Оплатить подписку", callback_data="pay_subscription")])
+        keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="menu")])
 
         if subscription and subscription.is_trial:
             text += f"\n\n🔰 Ваш пробный период активен! Осталось {subscription.trial_days_left} дней."
-        elif subscription and subscription.is_active:
-            text += f"\n\n✅ Ваша подписка активна! Осталось {subscription.days_left} дней."
+        elif subscription and subscription.is_active and subscription.is_expired:
+            text += "\n\n⏰ Ваша подписка истекла. Оформите новую для продолжения."
 
         await query.edit_message_text(
             text,
-            reply_markup=keyboard,
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
 
     async def start_trial(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Начало пробного периода"""
+        """Начало пробного периода (автоматически, без заявок)"""
         query = update.callback_query
         await query.answer()
 
@@ -99,9 +116,10 @@ class PaymentHandler(BaseHandler):
             # Запускаем пробный период
             subscription = self.subscription_service.start_trial(db_user)
 
-            # Логируем действие
-            logger.info(f"User {user.id} started trial period")
+            # Логируем
+            logger.info(f"✅ User {user.id} started trial period")
 
+            # ✅ Сразу даём доступ — НЕ отправляем заявку админу!
             await query.edit_message_text(
                 f"✅ **Пробный период активирован!**\n\n"
                 f"🔰 Вам доступны все функции клуба на 7 дней.\n"
@@ -129,7 +147,7 @@ class PaymentHandler(BaseHandler):
             )
 
     async def pay_subscription(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Оформление платной подписки"""
+        """Оформление платной подписки (автоматически после оплаты)"""
         query = update.callback_query
         await query.answer()
 
@@ -141,7 +159,7 @@ class PaymentHandler(BaseHandler):
             last_name=user.last_name
         )
 
-        # Создаем платеж
+        # Создаём платёж
         payment_obj, payment_url = self.payment_service.create_payment(
             db_user, config.SUBSCRIPTION_PRICE
         )
@@ -195,7 +213,7 @@ class PaymentHandler(BaseHandler):
             # Отмечаем платеж как завершенный
             self.payment_service.complete_payment(payment_id, db_user.id)
 
-            logger.info(f"User {user.id} activated subscription")
+            logger.info(f"✅ User {user.id} activated subscription")
 
             await query.edit_message_text(
                 "✅ **Подписка активирована!**\n\n"

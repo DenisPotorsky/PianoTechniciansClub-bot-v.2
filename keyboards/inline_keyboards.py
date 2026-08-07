@@ -10,13 +10,6 @@ from app.config import config
 def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboardMarkup:
     """
     Создаёт главную клавиатуру в зависимости от доступа пользователя.
-
-    Args:
-        has_access: Есть ли доступ к функциям клуба
-        access_type: Тип доступа (subscription, whitelist_founder и т.д.)
-
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопками
     """
     keyboard: List[List[InlineKeyboardButton]] = [
         [InlineKeyboardButton("📖 О проекте", callback_data="about")]
@@ -42,7 +35,7 @@ def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboard
                     [InlineKeyboardButton("👑 Управление", callback_data="admin_menu")]
                 )
     else:
-        # Доступ закрыт — только кнопка подписки/пробного периода
+        # Доступ закрыт — только кнопка получения доступа
         keyboard.append([InlineKeyboardButton("🎹 Получить доступ", callback_data="subscribe")])
 
     # Кнопка помощи всегда внизу
@@ -51,26 +44,9 @@ def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboard
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_subscription_keyboard() -> InlineKeyboardMarkup:
-    """
-    Клавиатура для оформления подписки или пробного периода.
-
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопками подписки и пробного периода
-    """
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔰 Попробовать 7 дней бесплатно", callback_data="start_trial")],
-        [InlineKeyboardButton("💳 Оформить подписку", callback_data="pay_subscription")],
-        [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
-    ])
-
-
 def get_subscription_success_keyboard() -> InlineKeyboardMarkup:
     """
     Клавиатура после успешной активации подписки или пробного периода.
-
-    Returns:
-        InlineKeyboardMarkup: Клавиатура со ссылками на канал и чат
     """
     return InlineKeyboardMarkup([
         [
@@ -84,27 +60,14 @@ def get_subscription_success_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_cancel_keyboard() -> InlineKeyboardMarkup:
-    """
-    Клавиатура с кнопкой отмены.
-
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопкой отмены
-    """
+    """Клавиатура с кнопкой отмены"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("◀️ Отмена", callback_data="cancel")]
     ])
 
 
 def get_back_keyboard(callback_data: str = "menu") -> InlineKeyboardMarkup:
-    """
-    Клавиатура с кнопкой "Назад".
-
-    Args:
-        callback_data: Данные для callback-запроса
-
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопкой назад
-    """
+    """Клавиатура с кнопкой 'Назад'"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("◀️ Назад", callback_data=callback_data)]
     ])

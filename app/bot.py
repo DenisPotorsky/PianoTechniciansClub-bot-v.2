@@ -1,5 +1,5 @@
 """
-Главный класс бота PianoMaster Club с пробным периодом
+Главный класс бота PianoMaster Club с автоматическим доступом
 """
 
 import asyncio
@@ -32,19 +32,13 @@ from handlers.age import AgeHandler
 from age_detector import AgeDetector
 from age_database import AgeDatabase
 from models.whitelist import WhitelistRole
-from utils.logger import setup_logger
-
-logger = setup_logger()
+from utils.logger import logger
 
 
 class PianoMasterBot:
-    """Основной класс бота с поддержкой пробного периода"""
+    """Основной класс бота с автоматической активацией доступа"""
 
     def __init__(self):
-        """
-        Инициализация бота: проверка конфигурации, подключение к БД,
-        инициализация сервисов, репозиториев и обработчиков.
-        """
         # Проверка конфигурации
         if not config.validate():
             logger.error("Configuration validation failed. Please check .env file")
@@ -109,10 +103,7 @@ class PianoMasterBot:
         logger.info("Bot initialized successfully")
 
     def _initialize_whitelist(self):
-        """
-        Инициализация белого списка: если он пуст, автоматически добавляются
-        администраторы, указанные в конфигурации.
-        """
+        """Инициализация белого списка"""
         try:
             users = self.whitelist_service.get_all_whitelist_users()
 
@@ -158,9 +149,7 @@ class PianoMasterBot:
             logger.error(f"Error initializing whitelist: {e}")
 
     def _setup_handlers(self):
-        """
-        Настройка всех обработчиков команд и callback-запросов.
-        """
+        """Настройка всех обработчиков"""
         # Команды
         self.app.add_handler(CommandHandler("start", self.menu_handler.handle))
         self.app.add_handler(CommandHandler("menu", self.menu_handler.handle))
@@ -202,9 +191,7 @@ class PianoMasterBot:
         self.app.add_error_handler(self._error_handler)
 
     async def _handle_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Обработчик команды /cancel для отмены текущих операций.
-        """
+        """Обработчик команды /cancel"""
         user = update.effective_user
 
         if context.user_data.get('waiting_for_whitelist_add'):
@@ -234,17 +221,13 @@ class PianoMasterBot:
             )
 
     async def _error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Глобальный обработчик ошибок.
-        """
+        """Глобальный обработчик ошибок"""
         error_str = str(context.error)
 
-        # Игнорируем Conflict — это не критично для работы
         if "Conflict" in error_str:
             logger.debug(f"Ignored Conflict error: {error_str}")
             return
 
-        # Игнорируем ошибки парсинга Markdown
         if "Can't parse entities" in error_str:
             logger.warning(f"Markdown parse error: {error_str}")
             try:
@@ -266,9 +249,7 @@ class PianoMasterBot:
             logger.error(f"Error in error handler: {e}")
 
     async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Обработчик всех callback-запросов от кнопок.
-        """
+        """Обработчик callback-запросов"""
         query = update.callback_query
         data = query.data
 
@@ -318,9 +299,7 @@ class PianoMasterBot:
                 pass
 
     async def _show_about(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Показывает информацию о проекте.
-        """
+        """Информация о проекте"""
         query = update.callback_query
         await query.answer()
 
@@ -355,9 +334,7 @@ class PianoMasterBot:
         )
 
     async def _show_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Показывает справочную информацию.
-        """
+        """Справка"""
         query = update.callback_query
         await query.answer()
 
@@ -371,18 +348,18 @@ class PianoMasterBot:
             "",
             "📋 Основные разделы:",
             "• 📖 О проекте — информация о клубе",
-            "• 🎹 Присоединиться — оформление подписки или пробный период",
-            "• 🧮 Калькулятор струн — пошаговый расчет басовых струн",
-            "• 📅 Возраст фортепиано — определение года выпуска по серийному номеру",
-            "• 🔄 Статус доступа — проверка подписки/белого списка",
+            "• 🎹 Получить доступ — пробный период или подписка",
+            "• 🧮 Калькулятор струн — пошаговый расчет",
+            "• 📅 Возраст фортепиано — определение года выпуска",
+            "• 🔄 Статус доступа — проверка подписки",
             "• 📢 Канал — закрытый канал мастеров",
             "• 💬 Чат — общение с коллегами",
             "",
             "📝 Команды:",
             "/start или /menu — Главное меню",
-            "/calc — Калькулятор струн (пошаговый режим)",
-            "/age — Определение возраста фортепиано",
-            "/cancel — Отмена текущей операции",
+            "/calc — Калькулятор струн",
+            "/age — Возраст фортепиано",
+            "/cancel — Отмена операции",
         ]
 
         if is_admin:
@@ -390,21 +367,17 @@ class PianoMasterBot:
                 "",
                 "👑 Администратор:",
                 "/admin — Панель управления",
-                "• Добавление/удаление из белого списка",
-                "• Просмотр статистики",
             ])
 
         lines.extend([
             "",
             "💡 Советы:",
-            "• Калькулятор работает пошагово — следуйте инструкциям",
-            "• Для определения возраста введите бренд и серийный номер",
-            "• Серийный номер можно вводить с буквами (цифры извлекаются автоматически)",
+            "• Доступ открывается автоматически",
+            "• Пробный период — 7 дней бесплатно",
             "• Для отмены используйте /cancel",
             "",
             "📧 Поддержка:",
             "• Администратор: @piano_admin",
-            "• Email: support@pianoclub.com",
         ])
 
         help_text = "\n".join(lines)
@@ -423,9 +396,7 @@ class PianoMasterBot:
         )
 
     async def _show_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Показывает статус доступа пользователя (с учётом пробного периода).
-        """
+        """Статус доступа пользователя"""
         query = update.callback_query
         await query.answer()
 
@@ -445,7 +416,6 @@ class PianoMasterBot:
         access_desc = self.access_service.get_access_description(db_user)
         is_admin = user.id in config.ADMIN_IDS
 
-        # Получаем информацию о подписке и пробном периоде
         subscription = self.subscription_service.get_by_user(db_user)
 
         lines = []
@@ -456,7 +426,6 @@ class PianoMasterBot:
             lines.append(access_desc)
             lines.append("")
 
-            # Информация о пробном периоде
             if subscription and subscription.is_trial:
                 lines.append(f"🔰 Пробный период: {subscription.trial_days_left} дн.")
                 lines.append(f"📅 До: {subscription.trial_end.strftime('%d.%m.%Y')}")
@@ -527,10 +496,7 @@ class PianoMasterBot:
         )
 
     async def _check_expired_subscriptions(self):
-        """
-        Фоновый процесс для проверки истекших подписок и пробных периодов.
-        Запускается в отдельной задаче и проверяет каждые 60 минут.
-        """
+        """Фоновая проверка истекших подписок и пробных периодов"""
         while True:
             try:
                 # Проверка истекших подписок
@@ -546,12 +512,12 @@ class PianoMasterBot:
                                     user.telegram_id,
                                     "⏰ Подписка истекла\n\n"
                                     "Ваш доступ к PianoMaster Club завершен.\n"
-                                    "Для продления нажмите /menu и выберите «Присоединиться»"
+                                    "Для продления нажмите /menu и выберите «Получить доступ»"
                                 )
                             except Exception as e:
                                 logger.error(f"Failed to notify user {user.telegram_id}: {e}")
 
-                # Проверка пробных периодов, которые истекают скоро (за 1 день)
+                # Проверка пробных периодов, которые истекают скоро
                 trials_expiring = self.subscription_service.get_trials_expiring_soon(1)
                 for subscription in trials_expiring:
                     user = self.user_service.get(subscription.user_id)
@@ -561,7 +527,7 @@ class PianoMasterBot:
                                 user.telegram_id,
                                 f"🔰 Ваш пробный период заканчивается завтра!\n\n"
                                 f"Чтобы продолжить пользоваться клубом, оформите подписку.\n"
-                                f"Нажмите /menu и выберите «Присоединиться»"
+                                f"Нажмите /menu и выберите «Получить доступ»"
                             )
                         except Exception as e:
                             logger.error(f"Failed to notify trial user {user.telegram_id}: {e}")
@@ -584,7 +550,6 @@ class PianoMasterBot:
                             except Exception as e:
                                 logger.error(f"Failed to notify whitelist user {user.telegram_id}: {e}")
 
-                # Пауза перед следующей проверкой (60 минут)
                 await asyncio.sleep(3600)
 
             except Exception as e:
@@ -592,24 +557,19 @@ class PianoMasterBot:
                 await asyncio.sleep(300)
 
     async def run(self):
-        """
-        Запуск бота: удаление вебхука, запуск фоновых задач и polling.
-        """
+        """Запуск бота"""
         if not config.validate():
             logger.error("Configuration validation failed. Please check .env file")
             return
 
-        # Удаление вебхука для предотвращения конфликтов
         try:
             await self.app.bot.delete_webhook()
             logger.info("✅ Webhook deleted")
         except Exception as e:
             logger.warning(f"Webhook deletion failed: {e}")
 
-        # Запуск фоновой проверки подписок
         asyncio.create_task(self._check_expired_subscriptions())
 
-        # Запуск бота
         logger.info("Starting PianoMaster Club Bot...")
         await self.app.initialize()
         await self.app.start()
@@ -617,6 +577,5 @@ class PianoMasterBot:
 
         logger.info("✅ Bot is running!")
 
-        # Бесконечный цикл для поддержания работы
         while True:
             await asyncio.sleep(1)
