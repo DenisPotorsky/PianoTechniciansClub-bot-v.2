@@ -21,81 +21,37 @@ class Database:
 
     def _init_database(self):
         """Инициализация всех таблиц"""
-        try:
-            with self.get_connection() as conn:
-                # Таблица пользователей
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        telegram_id INTEGER UNIQUE NOT NULL,
-                        username TEXT,
-                        first_name TEXT NOT NULL,
-                        last_name TEXT,
-                        is_active BOOLEAN DEFAULT 1,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+        with self.get_connection() as conn:
+            # Таблица пользователей (без изменений)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_id INTEGER UNIQUE NOT NULL,
+                    username TEXT,
+                    first_name TEXT NOT NULL,
+                    last_name TEXT,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-                # Таблица подписок
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS subscriptions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        is_active BOOLEAN DEFAULT 1,
-                        starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        expires_at TIMESTAMP NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                    )
-                """)
+            # Таблица подписок — ДОБАВЛЯЕМ ПОЛЯ ДЛЯ ПРОБНОГО ПЕРИОДА
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    is_active BOOLEAN DEFAULT 1,
+                    starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL,
+                    trial_start TIMESTAMP,
+                    trial_end TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
 
-                # Таблица платежей
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS payments (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        amount INTEGER NOT NULL,
-                        status TEXT NOT NULL,
-                        payment_id TEXT UNIQUE NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        completed_at TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                    )
-                """)
-
-                # Таблица белого списка
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS whitelist (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        role TEXT NOT NULL,
-                        reason TEXT,
-                        added_by INTEGER NOT NULL,
-                        expires_at TIMESTAMP,
-                        is_active BOOLEAN DEFAULT 1,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                        FOREIGN KEY (added_by) REFERENCES users(id) ON DELETE CASCADE
-                    )
-                """)
-
-                # Индексы для оптимизации
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_users_telegram ON users(telegram_id)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_active ON subscriptions(is_active)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_whitelist_user ON whitelist(user_id)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_whitelist_active ON whitelist(is_active)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id)")
-
-                conn.commit()
-                print(f"✅ Database initialized at: {self.db_path}")
-
-        except Exception as e:
-            print(f"❌ Error initializing database: {e}")
-            raise
 
     @contextmanager
     def get_connection(self):

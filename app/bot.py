@@ -1,5 +1,5 @@
 """
-Главный класс бота PianoMaster Club
+Главный класс бота PianoMaster Club с пробным периодом
 """
 
 import asyncio
@@ -28,9 +28,9 @@ from handlers.menu_handler import MenuHandler
 from handlers.payment_handler import PaymentHandler
 from handlers.calculator_handler import CalculatorHandler
 from handlers.admin_handler import AdminHandler
-from handlers.age import AgeHandler  # НОВЫЙ ИМПОРТ
-from age_detector import AgeDetector  # НОВЫЙ ИМПОРТ
-from age_database import AgeDatabase  # НОВЫЙ ИМПОРТ
+from handlers.age import AgeHandler
+from age_detector import AgeDetector
+from age_database import AgeDatabase
 from models.whitelist import WhitelistRole
 from utils.logger import setup_logger
 
@@ -38,7 +38,7 @@ logger = setup_logger()
 
 
 class PianoMasterBot:
-    """Основной класс бота"""
+    """Основной класс бота с поддержкой пробного периода"""
 
     def __init__(self):
         """
@@ -80,7 +80,7 @@ class PianoMasterBot:
         self.calculator_service = CalculatorService()
 
         # Инициализация базы данных для определения возраста фортепиано
-        AGE_DB_PATH = "piano_age.db"  # Файл в корне проекта
+        AGE_DB_PATH = "piano_age.db"
         try:
             self.age_db = AgeDatabase(AGE_DB_PATH)
             logger.info(f"Age database connected: {AGE_DB_PATH}")
@@ -99,8 +99,7 @@ class PianoMasterBot:
         )
         self.calculator_handler = CalculatorHandler(self.access_service, self.user_service)
         self.admin_handler = AdminHandler(self.whitelist_service, self.user_service)
-        self.age_handler = AgeHandler(self.age_detector, self.access_service,
-                                      self.user_service) if self.age_detector else None
+        self.age_handler = AgeHandler(self.age_detector, self.access_service, self.user_service) if self.age_detector else None
 
         # Инициализация приложения Telegram
         self.app = Application.builder().token(config.BOT_TOKEN).build()
@@ -168,7 +167,6 @@ class PianoMasterBot:
         self.app.add_handler(CommandHandler("admin", self.admin_handler.handle))
         self.app.add_handler(CommandHandler("calc", self.calculator_handler.handle))
 
-        # Добавляем команду /age, если есть обработчик
         if self.age_handler:
             self.app.add_handler(CommandHandler("age", self.age_handler.handle))
 
@@ -281,6 +279,10 @@ class PianoMasterBot:
                 await self._show_about(update, context)
             elif data == "subscribe":
                 await self.payment_handler.handle(update, context)
+            elif data == "start_trial":
+                await self.payment_handler.start_trial(update, context)
+            elif data == "pay_subscription":
+                await self.payment_handler.pay_subscription(update, context)
             elif data.startswith("check_payment_"):
                 await self.payment_handler.check_payment(update, context)
             elif data == "calculator":
@@ -369,7 +371,7 @@ class PianoMasterBot:
             "",
             "📋 Основные разделы:",
             "• 📖 О проекте — информация о клубе",
-            "• 🎹 Присоединиться — оформление подписки",
+            "• 🎹 Присоединиться — оформление подписки или пробный период",
             "• 🧮 Калькулятор струн — пошаговый расчет басовых струн",
             "• 📅 Возраст фортепиано — определение года выпуска по серийному номеру",
             "• 🔄 Статус доступа — проверка подписки/белого списка",
@@ -422,7 +424,7 @@ class PianoMasterBot:
 
     async def _show_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
-        Показывает статус доступа пользователя.
+        Показывает статус доступа пользователя (с учётом пробного периода).
         """
         query = update.callback_query
         await query.answer()
@@ -443,6 +445,9 @@ class PianoMasterBot:
         access_desc = self.access_service.get_access_description(db_user)
         is_admin = user.id in config.ADMIN_IDS
 
+        # Получаем информацию о подписке и пробном периоде
+        subscription = self.subscription_service.get_by_user(db_user)
+
         lines = []
 
         if has_access:
@@ -451,41 +456,49 @@ class PianoMasterBot:
             lines.append(access_desc)
             lines.append("")
 
+            # Информация о пробном периоде
+            if subscription and subscription.is_trial:
+                lines.append(f"🔰 Пробный период: {subscription.trial_days_left} дн.")
+                lines.append(f"📅 До: {subscription.trial_end.strftime('%d.%m.%Y')}")
+            elif subscription and subscription.is_active:
+                lines.append(f"📅 Действует до: {subscription.expires_at.strftime('%d.%m.%Y')}")
+                lines.append(f"⏳ Осталось: {subscription.days_left} дн.")
+            elif subscription and subscription.has_trial_available:
+                lines.append("🔰 Доступен пробный период 7 дней!")
+
             if access_type.startswith("whitelist_"):
                 role_str = access_type.replace("whitelist_", "")
                 try:
                     role = WhitelistRole(role_str)
-                    lines.append(f"Роль: {role.display_name}")
+                    lines.append(f"👑 Роль: {role.display_name}")
 
                     entry = self.whitelist_service.get_by_user(db_user)
                     if entry and entry.expires_at:
-                        lines.append(f"Действует до: {entry.expires_at.strftime('%d.%m.%Y %H:%M')}")
+                        lines.append(f"📅 До: {entry.expires_at.strftime('%d.%m.%Y %H:%M')}")
                     if entry and entry.reason:
-                        lines.append(f"Причина: {entry.reason}")
+                        lines.append(f"📝 Причина: {entry.reason}")
                 except ValueError:
                     pass
-            else:
-                subscription = self.subscription_service.get_by_user(db_user)
-                if subscription:
-                    lines.append(f"Активирована: {subscription.starts_at.strftime('%d.%m.%Y')}")
-                    lines.append(f"Истекает: {subscription.expires_at.strftime('%d.%m.%Y')}")
-                    lines.append(f"Осталось дней: {subscription.days_left}")
         else:
             lines.extend([
                 "❌ Доступ закрыт",
                 "",
                 "Для доступа к функциям клуба необходимо:",
+                "• Начать пробный период (7 дней бесплатно)",
                 "• Оформить подписку",
                 "• Или быть в белом списке",
                 "",
-                f"Ваш ID: {user.id}"
+                f"🆔 Ваш ID: {user.id}"
             ])
 
         status_text = "\n".join(lines)
 
         keyboard = []
         if not has_access:
-            keyboard.append([InlineKeyboardButton("🎹 Присоединиться", callback_data="subscribe")])
+            keyboard.append([InlineKeyboardButton("🔰 Попробовать 7 дней бесплатно", callback_data="subscribe")])
+        else:
+            if subscription and subscription.is_trial:
+                keyboard.append([InlineKeyboardButton("💳 Оформить подписку", callback_data="subscribe")])
 
         if has_access:
             keyboard.append([
@@ -507,7 +520,7 @@ class PianoMasterBot:
 
     async def _check_expired_subscriptions(self):
         """
-        Фоновый процесс для проверки истекших подписок и записей белого списка.
+        Фоновый процесс для проверки истекших подписок и пробных периодов.
         Запускается в отдельной задаче и проверяет каждые 60 минут.
         """
         while True:
@@ -529,6 +542,21 @@ class PianoMasterBot:
                                 )
                             except Exception as e:
                                 logger.error(f"Failed to notify user {user.telegram_id}: {e}")
+
+                # Проверка пробных периодов, которые истекают скоро (за 1 день)
+                trials_expiring = self.subscription_service.get_trials_expiring_soon(1)
+                for subscription in trials_expiring:
+                    user = self.user_service.get(subscription.user_id)
+                    if user:
+                        try:
+                            await self.app.bot.send_message(
+                                user.telegram_id,
+                                f"🔰 Ваш пробный период заканчивается завтра!\n\n"
+                                f"Чтобы продолжить пользоваться клубом, оформите подписку.\n"
+                                f"Нажмите /menu и выберите «Присоединиться»"
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to notify trial user {user.telegram_id}: {e}")
 
                 # Проверка истекших записей в белом списке
                 expired_whitelist = self.whitelist_service.check_expired_entries()
@@ -553,7 +581,7 @@ class PianoMasterBot:
 
             except Exception as e:
                 logger.error(f"Error in subscription checker: {e}")
-                await asyncio.sleep(300)  # При ошибке ждём 5 минут и пробуем снова
+                await asyncio.sleep(300)
 
     async def run(self):
         """

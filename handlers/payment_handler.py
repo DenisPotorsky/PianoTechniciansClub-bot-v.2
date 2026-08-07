@@ -1,3 +1,7 @@
+"""
+Обработчик платежей и пробного периода
+"""
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from handlers.base_handler import BaseHandler
@@ -5,11 +9,10 @@ from services.payment_service import PaymentService
 from services.subscription_service import SubscriptionService
 from services.user_service import UserService
 from app.config import config
-from keyboards.inline_keyboards import get_subscription_success_keyboard
 
 
 class PaymentHandler(BaseHandler):
-    """Обработчик платежей"""
+    """Обработчик платежей с поддержкой пробного периода"""
 
     def __init__(self, payment_service: PaymentService,
                  subscription_service: SubscriptionService,
@@ -19,7 +22,126 @@ class PaymentHandler(BaseHandler):
         self.user_service = user_service
 
     async def handle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Начало процесса оплаты"""
+        """Начало процесса оплаты или активация пробного периода"""
+        query = update.callback_query
+        await query.answer()
+
+        user = update.effective_user
+        db_user = self.user_service.get_or_create(
+            telegram_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name
+        )
+
+        # Проверяем, есть ли уже подписка
+        subscription = self.subscription_service.get_by_user(db_user)
+
+        # Проверяем, доступен ли пробный период
+        can_start_trial = not subscription or subscription.has_trial_available
+
+        keyboard = []
+
+        # Кнопка пробного периода (если доступен)
+        if can_start_trial:
+            keyboard.append([
+                InlineKeyboardButton("🔰 Попробовать 7 дней бесплатно", callback_data="start_trial")
+            ])
+
+        # Кнопка оплаты
+        keyboard.append([
+            InlineKeyboardButton("💳 Оплатить подписку", callback_data="pay_subscription")
+        ])
+
+        keyboard.append([
+            InlineKeyboardButton("◀️ Назад", callback_data="menu")
+        ])
+
+        text = (
+            "🎹 **PianoMaster Club — Подписка**\n\n"
+            "Выберите способ получения доступа:\n\n"
+        )
+
+        if can_start_trial:
+            text += (
+                "🔰 **Пробный период 7 дней** — бесплатно!\n"
+                "• Все функции клуба\n"
+                "• Доступ к каналу и чату\n"
+                "• Калькулятор струн\n"
+                "• Определение возраста фортепиано\n\n"
+            )
+
+        text += (
+            f"💎 **Полная подписка** — {config.SUBSCRIPTION_PRICE} ₽ / {config.SUBSCRIPTION_DAYS} дней\n"
+            "• Все функции пробного периода\n"
+            "• Продолжение доступа после пробного периода"
+        )
+
+        if subscription and subscription.is_trial:
+            text += f"\n\n🔰 Ваш пробный период активен! Осталось {subscription.trial_days_left} дней."
+        elif subscription and subscription.is_active:
+            text += f"\n\n✅ Ваша подписка активна! Осталось {subscription.days_left} дней."
+
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+    async def start_trial(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Начало пробного периода"""
+        query = update.callback_query
+        await query.answer()
+
+        user = update.effective_user
+        db_user = self.user_service.get_by_telegram_id(user.id)
+
+        if not db_user:
+            await query.edit_message_text(
+                "❌ Пользователь не найден",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
+                ])
+            )
+            return
+
+        try:
+            # Запускаем пробный период
+            subscription = self.subscription_service.start_trial(db_user)
+
+            await query.edit_message_text(
+                f"✅ **Пробный период активирован!**\n\n"
+                f"🔰 Вам доступны все функции клуба на 7 дней.\n"
+                f"📅 Действует до: {subscription.trial_end.strftime('%d.%m.%Y')}\n\n"
+                f"После окончания пробного периода вы можете оформить полную подписку.\n\n"
+                f"📢 Присоединяйтесь к каналу и чату:",
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
+                        InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
+                    ],
+                    [InlineKeyboardButton("◀️ Меню", callback_data="menu")]
+                ]),
+                parse_mode="Markdown"
+            )
+
+        except ValueError as e:
+            await query.edit_message_text(
+                f"❌ {str(e)}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
+                ])
+            )
+        except Exception as e:
+            await query.edit_message_text(
+                f"❌ Ошибка при активации пробного периода: {str(e)}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
+                ])
+            )
+
+    async def pay_subscription(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Оформление платной подписки"""
         query = update.callback_query
         await query.answer()
 
@@ -52,6 +174,7 @@ class PaymentHandler(BaseHandler):
             f"• Закрытый канал мастеров\n"
             f"• Чат для общения\n"
             f"• Калькулятор струн\n"
+            f"• Определение возраста фортепиано\n"
             f"• Эксклюзивные материалы",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -86,14 +209,24 @@ class PaymentHandler(BaseHandler):
 
             await query.edit_message_text(
                 "✅ **Подписка активирована!**\n\n"
-                "Добро пожаловать в PianoMasterClub!\n\n"
+                "Добро пожаловать в PianoMaster Club!\n\n"
                 "**Теперь вам доступны:**\n"
                 "• 📢 Закрытый канал\n"
                 "• 💬 Чат мастеров\n"
                 "• 🔧 Калькулятор струн\n"
+                "• 📅 Определение возраста фортепиано\n"
                 "• 📚 Эксклюзивные материалы\n\n"
+                f"📅 Действует до: {subscription.expires_at.strftime('%d.%m.%Y')}\n\n"
                 "Присоединяйтесь к сообществу!",
-                reply_markup=get_subscription_success_keyboard(),
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
+                        InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
+                    ],
+                    [InlineKeyboardButton("🧮 Калькулятор", callback_data="calculator")],
+                    [InlineKeyboardButton("📅 Возраст фортепиано", callback_data="age")],
+                    [InlineKeyboardButton("◀️ Меню", callback_data="menu")]
+                ]),
                 parse_mode="Markdown"
             )
         else:

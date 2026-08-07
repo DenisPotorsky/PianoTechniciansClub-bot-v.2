@@ -1,3 +1,7 @@
+"""
+Репозиторий для работы с подписками
+"""
+
 from typing import Optional, List
 from datetime import datetime
 from models.subscription import Subscription
@@ -5,23 +9,31 @@ from repositories.base_repository import BaseRepository
 
 
 class SubscriptionRepository(BaseRepository[Subscription]):
-    """Репозиторий подписок"""
+    """Репозиторий подписок с поддержкой пробного периода"""
 
     def create(self, subscription: Subscription) -> Subscription:
         """Создание подписки"""
         result = self.db.execute(
             """
-            INSERT INTO subscriptions (user_id, is_active, starts_at, expires_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO subscriptions (
+                user_id, is_active, starts_at, expires_at, 
+                trial_start, trial_end
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (subscription.user_id, subscription.is_active,
-             subscription.starts_at, subscription.expires_at)
+            (
+                subscription.user_id,
+                subscription.is_active,
+                subscription.starts_at,
+                subscription.expires_at,
+                subscription.trial_start,
+                subscription.trial_end
+            )
         )
         subscription.id = result.lastrowid
         return subscription
 
     def get_by_id(self, id: int) -> Optional[Subscription]:
-        """Получение по ID"""
+        """Получение подписки по ID"""
         data = self.db.fetch_one(
             "SELECT * FROM subscriptions WHERE id = ?",
             (id,)
@@ -50,16 +62,37 @@ class SubscriptionRepository(BaseRepository[Subscription]):
         )
         return [self._dict_to_subscription(data) for data in data_list]
 
+    def get_trials_expiring_soon(self, days: int = 1) -> List[Subscription]:
+        """Получение пробных периодов, которые истекают скоро"""
+        data_list = self.db.fetch_all(
+            """
+            SELECT * FROM subscriptions 
+            WHERE is_active = 1 
+            AND trial_end IS NOT NULL 
+            AND trial_end <= datetime('now', '+' || ? || ' days')
+            AND trial_end > datetime('now')
+            """,
+            (days,)
+        )
+        return [self._dict_to_subscription(data) for data in data_list]
+
     def update(self, subscription: Subscription) -> Subscription:
         """Обновление подписки"""
         self.db.execute(
             """
             UPDATE subscriptions 
-            SET is_active = ?, starts_at = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP
+            SET is_active = ?, starts_at = ?, expires_at = ?, 
+                trial_start = ?, trial_end = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (subscription.is_active, subscription.starts_at,
-             subscription.expires_at, subscription.id)
+            (
+                subscription.is_active,
+                subscription.starts_at,
+                subscription.expires_at,
+                subscription.trial_start,
+                subscription.trial_end,
+                subscription.id
+            )
         )
         return subscription
 
@@ -87,6 +120,8 @@ class SubscriptionRepository(BaseRepository[Subscription]):
             is_active=bool(data['is_active']),
             starts_at=datetime.fromisoformat(data['starts_at']),
             expires_at=datetime.fromisoformat(data['expires_at']),
+            trial_start=datetime.fromisoformat(data['trial_start']) if data.get('trial_start') else None,
+            trial_end=datetime.fromisoformat(data['trial_end']) if data.get('trial_end') else None,
             created_at=datetime.fromisoformat(data['created_at']),
             updated_at=datetime.fromisoformat(data['updated_at'])
         )
