@@ -1,3 +1,7 @@
+"""
+Модуль для работы с базой данных с поддержкой пробного периода
+"""
+
 import sqlite3
 from typing import Optional, Any, List, Dict
 from contextlib import contextmanager
@@ -5,24 +9,20 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+from utils.logger import logger
 
 
 class Database:
     """Класс для работы с базой данных"""
 
     def __init__(self, db_path: str):
-        # Убеждаемся, что папка существует
-        db_dir = os.path.dirname(db_path)
-        if db_dir and not os.path.exists(db_dir):
-            os.makedirs(db_dir, exist_ok=True)
-
         self.db_path = db_path
         self._init_database()
 
     def _init_database(self):
-        """Инициализация всех таблиц"""
+        """Инициализация всех таблиц с проверкой существующих колонок"""
         with self.get_connection() as conn:
-            # Таблица пользователей (без изменений)
+            # Таблица пользователей
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +36,7 @@ class Database:
                 )
             """)
 
-            # Таблица подписок — ДОБАВЛЯЕМ ПОЛЯ ДЛЯ ПРОБНОГО ПЕРИОДА
+            # Таблица подписок (с поддержкой пробного периода)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS subscriptions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +52,60 @@ class Database:
                 )
             """)
 
+            # 👇 ПРОВЕРЯЕМ И ДОБАВЛЯЕМ НЕДОСТАЮЩИЕ КОЛОНКИ ДЛЯ ПРОБНОГО ПЕРИОДА
+            cursor = conn.execute("PRAGMA table_info(subscriptions)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'trial_start' not in columns:
+                conn.execute("ALTER TABLE subscriptions ADD COLUMN trial_start TIMESTAMP")
+                logger.info("✅ Added column trial_start to subscriptions")
+
+            if 'trial_end' not in columns:
+                conn.execute("ALTER TABLE subscriptions ADD COLUMN trial_end TIMESTAMP")
+                logger.info("✅ Added column trial_end to subscriptions")
+
+            # Таблица платежей
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    amount INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    payment_id TEXT UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Таблица белого списка
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS whitelist (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    reason TEXT,
+                    added_by INTEGER NOT NULL,
+                    expires_at TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (added_by) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Индексы для оптимизации
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_telegram ON users(telegram_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_active ON subscriptions(is_active)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_trial ON subscriptions(trial_start, trial_end)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_whitelist_user ON whitelist(user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_whitelist_active ON whitelist(is_active)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id)")
+
+            conn.commit()
+            logger.info(f"✅ Database initialized at: {self.db_path}")
 
     @contextmanager
     def get_connection(self):
@@ -90,3 +144,50 @@ class Database:
             cursor = conn.execute(query, params)
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
+
+    # ============ МЕТОДЫ ДЛЯ РАБОТЫ С ПРОБНЫМ ПЕРИОДОМ ============
+
+    def get_trial_subscriptions(self) -> List[Dict]:
+        """Получение всех активных пробных периодов"""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT s.*, u.telegram_id, u.username, u.first_name, u.last_name
+                FROM subscriptions s
+                JOIN users u ON u.id = s.user_id
+                WHERE s.is_active = 1 
+                AND s.trial_start IS NOT NULL 
+                AND s.trial_end IS NOT NULL
+                AND s.trial_end >= datetime('now')
+                ORDER BY s.trial_end ASC
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_expired_trials(self) -> List[Dict]:
+        """Получение истекших пробных периодов"""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT s.*, u.telegram_id, u.username, u.first_name, u.last_name
+                FROM subscriptions s
+                JOIN users u ON u.id = s.user_id
+                WHERE s.is_active = 1 
+                AND s.trial_start IS NOT NULL 
+                AND s.trial_end IS NOT NULL
+                AND s.trial_end < datetime('now')
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_trials_expiring_soon(self, days: int = 1) -> List[Dict]:
+        """Получение пробных периодов, которые истекают скоро"""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT s.*, u.telegram_id, u.username, u.first_name, u.last_name
+                FROM subscriptions s
+                JOIN users u ON u.id = s.user_id
+                WHERE s.is_active = 1 
+                AND s.trial_start IS NOT NULL 
+                AND s.trial_end IS NOT NULL
+                AND s.trial_end >= datetime('now')
+                AND s.trial_end <= datetime('now', '+' || ? || ' days')
+                ORDER BY s.trial_end ASC
+            """, (days,))
+            return [dict(row) for row in cursor.fetchall()]

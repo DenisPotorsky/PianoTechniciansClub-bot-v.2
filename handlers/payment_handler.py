@@ -9,6 +9,7 @@ from services.payment_service import PaymentService
 from services.subscription_service import SubscriptionService
 from services.user_service import UserService
 from app.config import config
+from keyboards.inline_keyboards import get_subscription_keyboard, get_subscription_success_keyboard
 
 
 class PaymentHandler(BaseHandler):
@@ -40,25 +41,13 @@ class PaymentHandler(BaseHandler):
         # Проверяем, доступен ли пробный период
         can_start_trial = not subscription or subscription.has_trial_available
 
-        keyboard = []
-
-        # Кнопка пробного периода (если доступен)
-        if can_start_trial:
-            keyboard.append([
-                InlineKeyboardButton("🔰 Попробовать 7 дней бесплатно", callback_data="start_trial")
-            ])
-
-        # Кнопка оплаты
-        keyboard.append([
-            InlineKeyboardButton("💳 Оплатить подписку", callback_data="pay_subscription")
-        ])
-
-        keyboard.append([
-            InlineKeyboardButton("◀️ Назад", callback_data="menu")
+        keyboard = get_subscription_keyboard() if can_start_trial else InlineKeyboardMarkup([
+            [InlineKeyboardButton("💳 Оформить подписку", callback_data="pay_subscription")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
         ])
 
         text = (
-            "🎹 **PianoMaster Club — Подписка**\n\n"
+            "🎹 **PianoMaster Club — Получение доступа**\n\n"
             "Выберите способ получения доступа:\n\n"
         )
 
@@ -74,7 +63,8 @@ class PaymentHandler(BaseHandler):
         text += (
             f"💎 **Полная подписка** — {config.SUBSCRIPTION_PRICE} ₽ / {config.SUBSCRIPTION_DAYS} дней\n"
             "• Все функции пробного периода\n"
-            "• Продолжение доступа после пробного периода"
+            "• Продолжение доступа после пробного периода\n\n"
+            "📢 После получения доступа вам станут доступны канал и чат мастеров!"
         )
 
         if subscription and subscription.is_trial:
@@ -84,7 +74,7 @@ class PaymentHandler(BaseHandler):
 
         await query.edit_message_text(
             text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            reply_markup=keyboard,
             parse_mode="Markdown"
         )
 
@@ -109,19 +99,16 @@ class PaymentHandler(BaseHandler):
             # Запускаем пробный период
             subscription = self.subscription_service.start_trial(db_user)
 
+            # Логируем действие
+            logger.info(f"User {user.id} started trial period")
+
             await query.edit_message_text(
                 f"✅ **Пробный период активирован!**\n\n"
                 f"🔰 Вам доступны все функции клуба на 7 дней.\n"
                 f"📅 Действует до: {subscription.trial_end.strftime('%d.%m.%Y')}\n\n"
-                f"После окончания пробного периода вы можете оформить полную подписку.\n\n"
-                f"📢 Присоединяйтесь к каналу и чату:",
-                reply_markup=InlineKeyboardMarkup([
-                    [
-                        InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
-                        InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
-                    ],
-                    [InlineKeyboardButton("◀️ Меню", callback_data="menu")]
-                ]),
+                f"📢 **Теперь вам доступны канал и чат мастеров!**\n\n"
+                f"После окончания пробного периода вы можете оформить полную подписку.",
+                reply_markup=get_subscription_success_keyboard(),
                 parse_mode="Markdown"
             )
 
@@ -133,6 +120,7 @@ class PaymentHandler(BaseHandler):
                 ])
             )
         except Exception as e:
+            logger.error(f"Error starting trial: {e}")
             await query.edit_message_text(
                 f"❌ Ошибка при активации пробного периода: {str(e)}",
                 reply_markup=InlineKeyboardMarkup([
@@ -171,11 +159,11 @@ class PaymentHandler(BaseHandler):
             f"Срок: {config.SUBSCRIPTION_DAYS} дней\n\n"
             f"После оплаты нажмите «Проверить оплату»\n\n"
             f"📢 **После активации подписки вам станут доступны:**\n"
-            f"• Закрытый канал мастеров\n"
-            f"• Чат для общения\n"
-            f"• Калькулятор струн\n"
-            f"• Определение возраста фортепиано\n"
-            f"• Эксклюзивные материалы",
+            f"• 📢 Закрытый канал мастеров\n"
+            f"• 💬 Чат для общения\n"
+            f"• 🧮 Калькулятор струн\n"
+            f"• 📅 Определение возраста фортепиано\n"
+            f"• 📚 Эксклюзивные материалы",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -207,26 +195,15 @@ class PaymentHandler(BaseHandler):
             # Отмечаем платеж как завершенный
             self.payment_service.complete_payment(payment_id, db_user.id)
 
+            logger.info(f"User {user.id} activated subscription")
+
             await query.edit_message_text(
                 "✅ **Подписка активирована!**\n\n"
                 "Добро пожаловать в PianoMaster Club!\n\n"
-                "**Теперь вам доступны:**\n"
-                "• 📢 Закрытый канал\n"
-                "• 💬 Чат мастеров\n"
-                "• 🔧 Калькулятор струн\n"
-                "• 📅 Определение возраста фортепиано\n"
-                "• 📚 Эксклюзивные материалы\n\n"
+                "📢 **Теперь вам доступны канал и чат мастеров!**\n\n"
                 f"📅 Действует до: {subscription.expires_at.strftime('%d.%m.%Y')}\n\n"
                 "Присоединяйтесь к сообществу!",
-                reply_markup=InlineKeyboardMarkup([
-                    [
-                        InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
-                        InlineKeyboardButton("💬 Чат", url=config.CHAT_URL)
-                    ],
-                    [InlineKeyboardButton("🧮 Калькулятор", callback_data="calculator")],
-                    [InlineKeyboardButton("📅 Возраст фортепиано", callback_data="age")],
-                    [InlineKeyboardButton("◀️ Меню", callback_data="menu")]
-                ]),
+                reply_markup=get_subscription_success_keyboard(),
                 parse_mode="Markdown"
             )
         else:
@@ -236,7 +213,7 @@ class PaymentHandler(BaseHandler):
                 "Если вы уже оплатили, подождите 1-2 минуты.",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔄 Проверить снова",
-                                          callback_data=f"check_payment_{payment_id}")],
+                                         callback_data=f"check_payment_{payment_id}")],
                     [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
                 ]),
                 parse_mode="Markdown"

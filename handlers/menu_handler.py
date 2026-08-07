@@ -1,3 +1,7 @@
+"""
+Обработчик главного меню с проверкой доступа
+"""
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from handlers.base_handler import BaseHandler
@@ -37,7 +41,7 @@ class MenuHandler(BaseHandler):
         status_text = "Закрытый клуб" if not has_access else "Доступ открыт"
 
         message = (
-            f"🎵 **PianoMasterClub**\n\n"
+            f"🎵 **PianoMaster Club**\n\n"
             f"{status_icon} **{status_text}**\n"
             f"Добро пожаловать, {user.first_name}!\n\n"
             f"Эксклюзивный клуб для фортепианных мастеров экстра-класса.\n\n"

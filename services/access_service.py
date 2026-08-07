@@ -1,3 +1,7 @@
+"""
+Сервис управления доступом с поддержкой пробного периода
+"""
+
 from typing import Tuple, Optional
 from models.user import User
 from services.subscription_service import SubscriptionService
@@ -14,7 +18,7 @@ class AccessService:
 
     def has_access(self, user: User) -> Tuple[bool, str]:
         """
-        Проверка доступа пользователя
+        Проверка доступа пользователя.
         Возвращает (доступ, тип_доступа)
         """
         # Белый список имеет приоритет
@@ -22,7 +26,7 @@ class AccessService:
             role = self.whitelist_service.get_user_role(user)
             return True, f"whitelist_{role.value}"
 
-        # Проверка подписки
+        # Проверка подписки (включая пробный период)
         if self.subscription_service.has_active_subscription(user):
             return True, "subscription"
 
@@ -46,7 +50,9 @@ class AccessService:
         if access_type == "subscription":
             subscription = self.subscription_service.get_by_user(user)
             if subscription:
-                return f"✅ Подписка (осталось {subscription.days_left} дней)"
+                if subscription.is_trial:
+                    return f"🔰 Пробный период (осталось {subscription.trial_days_left} дн.)"
+                return f"✅ Подписка (осталось {subscription.days_left} дн.)"
 
         return "✅ Доступ открыт"
 
@@ -69,3 +75,11 @@ class AccessService:
             return 5
 
         return 1
+
+    def can_access_channel(self, user: User) -> bool:
+        """
+        Проверка доступа к каналу и чату.
+        Доступ есть только у пользователей с активной подпиской или белым списком.
+        """
+        has_access, _ = self.has_access(user)
+        return has_access

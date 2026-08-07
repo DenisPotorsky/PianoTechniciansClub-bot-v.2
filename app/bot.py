@@ -460,11 +460,17 @@ class PianoMasterBot:
             if subscription and subscription.is_trial:
                 lines.append(f"🔰 Пробный период: {subscription.trial_days_left} дн.")
                 lines.append(f"📅 До: {subscription.trial_end.strftime('%d.%m.%Y')}")
+                lines.append("")
+                lines.append("📢 **Доступ к каналу и чату открыт!**")
             elif subscription and subscription.is_active:
                 lines.append(f"📅 Действует до: {subscription.expires_at.strftime('%d.%m.%Y')}")
                 lines.append(f"⏳ Осталось: {subscription.days_left} дн.")
+                lines.append("")
+                lines.append("📢 **Доступ к каналу и чату открыт!**")
             elif subscription and subscription.has_trial_available:
                 lines.append("🔰 Доступен пробный период 7 дней!")
+                lines.append("")
+                lines.append("📢 **Для доступа к каналу и чату активируйте пробный период**")
 
             if access_type.startswith("whitelist_"):
                 role_str = access_type.replace("whitelist_", "")
@@ -488,6 +494,8 @@ class PianoMasterBot:
                 "• Оформить подписку",
                 "• Или быть в белом списке",
                 "",
+                "📢 **Для доступа к каналу и чату требуется активная подписка или пробный период!**",
+                "",
                 f"🆔 Ваш ID: {user.id}"
             ])
 
@@ -495,7 +503,7 @@ class PianoMasterBot:
 
         keyboard = []
         if not has_access:
-            keyboard.append([InlineKeyboardButton("🔰 Попробовать 7 дней бесплатно", callback_data="subscribe")])
+            keyboard.append([InlineKeyboardButton("🔰 Получить доступ", callback_data="subscribe")])
         else:
             if subscription and subscription.is_trial:
                 keyboard.append([InlineKeyboardButton("💳 Оформить подписку", callback_data="subscribe")])

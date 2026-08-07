@@ -42,8 +42,8 @@ def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboard
                     [InlineKeyboardButton("👑 Управление", callback_data="admin_menu")]
                 )
     else:
-        # Доступ закрыт — только кнопка подписки
-        keyboard.append([InlineKeyboardButton("🎹 Присоединиться", callback_data="subscribe")])
+        # Доступ закрыт — только кнопка подписки/пробного периода
+        keyboard.append([InlineKeyboardButton("🎹 Получить доступ", callback_data="subscribe")])
 
     # Кнопка помощи всегда внизу
     keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help")])
@@ -53,20 +53,21 @@ def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboard
 
 def get_subscription_keyboard() -> InlineKeyboardMarkup:
     """
-    Клавиатура для оформления подписки.
+    Клавиатура для оформления подписки или пробного периода.
 
     Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопкой подписки
+        InlineKeyboardMarkup: Клавиатура с кнопками подписки и пробного периода
     """
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎹 Оформить подписку", callback_data="subscribe")],
+        [InlineKeyboardButton("🔰 Попробовать 7 дней бесплатно", callback_data="start_trial")],
+        [InlineKeyboardButton("💳 Оформить подписку", callback_data="pay_subscription")],
         [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
     ])
 
 
 def get_subscription_success_keyboard() -> InlineKeyboardMarkup:
     """
-    Клавиатура после успешной оплаты подписки.
+    Клавиатура после успешной активации подписки или пробного периода.
 
     Returns:
         InlineKeyboardMarkup: Клавиатура со ссылками на канал и чат
