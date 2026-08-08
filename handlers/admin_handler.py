@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from handlers.base_handler import BaseHandler
 from services.whitelist_service import WhitelistService
 from services.user_service import UserService
-from services.subscription_service import SubscriptionService
+from services.subscription_service import SubscriptionService  # 👈 ДОБАВЛЯЕМ ИМПОРТ
 from models.whitelist import WhitelistRole
 from app.config import config
 
@@ -404,6 +404,9 @@ class AdminHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
 
+        # Получаем сервис подписок
+        subscription_service = SubscriptionService(self.user_service)  # 👈 ВРЕМЕННОЕ РЕШЕНИЕ
+
         # Получаем всех пользователей
         all_users = self.user_service.get_all_active()
         total_users = len(all_users)
@@ -424,8 +427,16 @@ class AdminHandler(BaseHandler):
         subscribed_users = []
         expired_users = []
 
+        # Импортируем SubscriptionRepository для доступа к БД
+        from repositories.subscription_repository import SubscriptionRepository
+        from app.database import Database
+        from app.config import config as app_config
+
+        db = Database(app_config.db_path)
+        sub_repo = SubscriptionRepository(db)
+
         for user in all_users:
-            subscription = self.subscription_service.get_by_user(user)
+            subscription = sub_repo.get_by_user_id(user.id)
             if subscription:
                 if subscription.is_trial:
                     trial_users.append(user)
@@ -463,7 +474,7 @@ class AdminHandler(BaseHandler):
         if trial_count > 0:
             text += "\n🔰 **Пользователи на пробном периоде:**\n"
             for user in trial_users[:10]:
-                subscription = self.subscription_service.get_by_user(user)
+                subscription = sub_repo.get_by_user_id(user.id)
                 if subscription:
                     text += f"  • {user.first_name} (@{user.username or 'нет'}) — до {subscription.trial_end.strftime('%d.%m.%Y')}\n"
             if trial_count > 10:
@@ -473,7 +484,7 @@ class AdminHandler(BaseHandler):
         if subscribed_count > 0:
             text += "\n💎 **Активная подписка:**\n"
             for user in subscribed_users[:10]:
-                subscription = self.subscription_service.get_by_user(user)
+                subscription = sub_repo.get_by_user_id(user.id)
                 if subscription:
                     text += f"  • {user.first_name} (@{user.username or 'нет'}) — до {subscription.expires_at.strftime('%d.%m.%Y')}\n"
             if subscribed_count > 10:
