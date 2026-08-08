@@ -38,7 +38,7 @@ class AgeDetector:
 
     async def detect(self, brand_name: str, serial_number: str, brand_type: str = None) -> AgeResult:
         """
-        Определение возраста фортепиано
+        Определение возраста фортепиано (регистронезависимый поиск)
 
         Args:
             brand_name: Название бренда
@@ -60,10 +60,10 @@ class AgeDetector:
                 message="❌ Не удалось распознать серийный номер. Введите только цифры."
             )
 
-        # Ищем бренд
+        # Ищем бренд (регистронезависимый поиск)
         brand = await self.db.get_brand_by_name(brand_name)
 
-        # Если бренд не найден, ищем похожие
+        # Если бренд не найден, ищем похожие (регистронезависимый поиск)
         if not brand:
             similar = await self.db.search_brands(brand_name, brand_type, limit=10)
             similar_names = [b['name'] for b in similar]
@@ -75,8 +75,7 @@ class AgeDetector:
                     serial_number=serial_int,
                     year=None,
                     found=False,
-                    message=f"❌ Бренд '{brand_name}' не найден.\n\nВозможно, вы имели в виду:\n" + "\n".join(
-                        f"• {name}" for name in similar_names[:10]),
+                    message=f"❌ Бренд '{brand_name}' не найден.\n\nВозможно, вы имели в виду:\n" + "\n".join(f"• {name}" for name in similar_names[:10]),
                     similar_brands=similar_names
                 )
             else:

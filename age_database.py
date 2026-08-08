@@ -7,6 +7,7 @@ import logging
 from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
 from contextlib import contextmanager
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,9 @@ class AgeDatabase:
 
             # Индексы для ускорения поиска
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brands_name ON brands(name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_brands_name_lower ON brands(LOWER(name))")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_serial_ranges_brand ON serial_ranges(brand_id)")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_serial_ranges_serial ON serial_ranges(serial_start, serial_end)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_serial_ranges_serial ON serial_ranges(serial_start, serial_end)")
 
             conn.commit()
 
@@ -118,8 +119,7 @@ class AgeDatabase:
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    async def search_brands(self, query: str, brand_type: Optional[str] = None, limit: int = 10) -> List[
-        Dict[str, Any]]:
+    async def search_brands(self, query: str, brand_type: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
         """
         Поиск брендов по части названия (регистронезависимый)
 
@@ -132,8 +132,11 @@ class AgeDatabase:
             Список словарей с данными брендов
         """
         with self.get_connection() as conn:
+            # Приводим запрос к нижнему регистру
+            query_lower = query.lower()
+
             sql = "SELECT * FROM brands WHERE LOWER(name) LIKE LOWER(?)"
-            params = [f"%{query}%"]
+            params = [f"%{query_lower}%"]
 
             if brand_type:
                 sql += " AND type = ?"
@@ -263,7 +266,6 @@ class AgeDatabase:
         Returns:
             Числовой серийный номер или None
         """
-        import re
         digits = re.sub(r'\D', '', text)
         if digits:
             return int(digits)
