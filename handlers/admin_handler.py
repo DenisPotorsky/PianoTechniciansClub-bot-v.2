@@ -1,8 +1,13 @@
+"""
+Обработчик административных команд с полной статистикой
+"""
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from handlers.base_handler import BaseHandler
 from services.whitelist_service import WhitelistService
 from services.user_service import UserService
+from services.subscription_service import SubscriptionService
 from models.whitelist import WhitelistRole
 from app.config import config
 
@@ -13,14 +18,13 @@ class AdminHandler(BaseHandler):
     def __init__(self, whitelist_service: WhitelistService, user_service: UserService):
         self.whitelist_service = whitelist_service
         self.user_service = user_service
-        self._waiting_for_add = {}  # {user_id: True}
-        self._waiting_for_remove = {}  # {user_id: True}
+        self._waiting_for_add = {}
+        self._waiting_for_remove = {}
 
     async def handle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Главное меню администратора"""
         user = update.effective_user
 
-        # Проверяем, администратор ли пользователь
         if user.id not in config.ADMIN_IDS:
             if update.message:
                 await update.message.reply_text("⛔ У вас нет прав администратора.")
@@ -117,7 +121,6 @@ class AdminHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
 
-        # Проверяем права
         user = update.effective_user
         db_user = self.user_service.get_by_telegram_id(user.id)
         if not db_user or not self.whitelist_service.can_manage_whitelist(db_user):
@@ -129,7 +132,6 @@ class AdminHandler(BaseHandler):
             )
             return
 
-        # Устанавливаем состояние ожидания ввода
         self._waiting_for_add[user.id] = True
         context.user_data['waiting_for_whitelist_add'] = True
 
@@ -161,7 +163,6 @@ class AdminHandler(BaseHandler):
         user = update.effective_user
         text = update.message.text.strip()
 
-        # Проверка на отмену
         if text.lower() == '/cancel':
             self._waiting_for_add.pop(user.id, None)
             context.user_data.pop('waiting_for_whitelist_add', None)
@@ -173,7 +174,6 @@ class AdminHandler(BaseHandler):
             )
             return
 
-        # Проверяем права
         if user.id not in config.ADMIN_IDS:
             await update.message.reply_text("⛔ У вас нет прав для этого действия")
             return
@@ -184,7 +184,6 @@ class AdminHandler(BaseHandler):
             return
 
         try:
-            # Парсим ввод
             parts = text.split(maxsplit=2)
             if len(parts) < 3:
                 await update.message.reply_text(
@@ -198,7 +197,6 @@ class AdminHandler(BaseHandler):
             role_str = parts[1].lower()
             reason = parts[2]
 
-            # Проверяем роль
             try:
                 role = WhitelistRole(role_str)
             except ValueError:
@@ -209,7 +207,6 @@ class AdminHandler(BaseHandler):
                 )
                 return
 
-            # Получаем или создаем пользователя
             user = self.user_service.get_or_create(
                 telegram_id=telegram_id,
                 username=None,
@@ -217,7 +214,6 @@ class AdminHandler(BaseHandler):
                 last_name=None
             )
 
-            # Проверяем, не добавлен ли уже
             if self.whitelist_service.is_in_whitelist(user):
                 existing_role = self.whitelist_service.get_user_role(user)
                 await update.message.reply_text(
@@ -226,7 +222,6 @@ class AdminHandler(BaseHandler):
                 )
                 return
 
-            # Добавляем в белый список
             days = 30 if role == WhitelistRole.TEMPORARY else None
             entry = self.whitelist_service.add_to_whitelist(
                 user=user,
@@ -236,15 +231,13 @@ class AdminHandler(BaseHandler):
                 days=days
             )
 
-            # Убираем состояние ожидания
             self._waiting_for_add.pop(user.id, None)
             context.user_data.pop('waiting_for_whitelist_add', None)
 
-            # Отправляем уведомление пользователю
             try:
                 await update.get_bot().send_message(
                     telegram_id,
-                    f"🎉 Вы добавлены в белый список PianoMasterClub!\n\n"
+                    f"🎉 Вы добавлены в белый список PianoMaster Club!\n\n"
                     f"Роль: {role.display_name}\n"
                     f"Причина: {reason}\n"
                     f"Добавил: {admin_db.display_name}\n\n"
@@ -282,7 +275,6 @@ class AdminHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
 
-        # Проверяем права
         user = update.effective_user
         db_user = self.user_service.get_by_telegram_id(user.id)
         if not db_user or not self.whitelist_service.can_manage_whitelist(db_user):
@@ -294,7 +286,6 @@ class AdminHandler(BaseHandler):
             )
             return
 
-        # Показываем список для удаления
         users = self.whitelist_service.get_all_whitelist_users()
 
         if not users:
@@ -317,7 +308,6 @@ class AdminHandler(BaseHandler):
 
         text += "\nДля отмены отправьте /cancel"
 
-        # Устанавливаем состояние ожидания ввода
         self._waiting_for_remove[update.effective_user.id] = True
         context.user_data['waiting_for_whitelist_remove'] = True
 
@@ -336,7 +326,6 @@ class AdminHandler(BaseHandler):
         user = update.effective_user
         text = update.message.text.strip()
 
-        # Проверка на отмену
         if text.lower() == '/cancel':
             self._waiting_for_remove.pop(user.id, None)
             context.user_data.pop('waiting_for_whitelist_remove', None)
@@ -348,7 +337,6 @@ class AdminHandler(BaseHandler):
             )
             return
 
-        # Проверяем права
         if user.id not in config.ADMIN_IDS:
             await update.message.reply_text("⛔ У вас нет прав для этого действия")
             return
@@ -374,16 +362,12 @@ class AdminHandler(BaseHandler):
                 )
                 return
 
-            # Получаем информацию о роли перед удалением
             role = self.whitelist_service.get_user_role(user_to_remove)
 
-            # Удаляем из белого списка
             if self.whitelist_service.remove_from_whitelist(user_to_remove):
-                # Убираем состояние ожидания
                 self._waiting_for_remove.pop(user.id, None)
                 context.user_data.pop('waiting_for_whitelist_remove', None)
 
-                # Уведомляем пользователя
                 try:
                     await update.get_bot().send_message(
                         telegram_id,
@@ -416,43 +400,93 @@ class AdminHandler(BaseHandler):
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
     async def show_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает статистику"""
+        """Показывает полную статистику с учётом пробных периодов и подписок"""
         query = update.callback_query
         await query.answer()
 
-        users = self.whitelist_service.get_all_whitelist_users()
-        total = len(users)
+        # Получаем всех пользователей
+        all_users = self.user_service.get_all_active()
+        total_users = len(all_users)
 
+        # Пользователи в белом списке
+        whitelist_users = self.whitelist_service.get_all_whitelist_users()
+        whitelist_count = len(whitelist_users)
+
+        # Статистика по ролям
         stats = {role.value: 0 for role in WhitelistRole}
-
-        for user in users:
+        for user in whitelist_users:
             role = self.whitelist_service.get_user_role(user)
             if role:
                 stats[role.value] = stats.get(role.value, 0) + 1
 
-        # Получаем общее количество пользователей
-        all_users = self.user_service.get_all_active()
-        total_users = len(all_users)
+        # ---- СТАТИСТИКА ПО ПОДПИСКАМ ----
+        trial_users = []
+        subscribed_users = []
+        expired_users = []
 
-        text = "📊 Статистика белого списка:\n\n"
-        text += f"👥 Всего пользователей: {total_users}\n"
-        text += f"⭐ В белом списке: {total}\n"
-        text += f"📊 Процент: {round((total / total_users * 100) if total_users > 0 else 0, 1)}%\n\n"
+        for user in all_users:
+            subscription = self.subscription_service.get_by_user(user)
+            if subscription:
+                if subscription.is_trial:
+                    trial_users.append(user)
+                elif subscription.is_active and not subscription.is_expired:
+                    subscribed_users.append(user)
+                elif subscription.is_expired:
+                    expired_users.append(user)
 
-        text += "Распределение по ролям:\n"
+        trial_count = len(trial_users)
+        subscribed_count = len(subscribed_users)
+        expired_count = len(expired_users)
+
+        # Формируем текст
+        text = "📊 **Статистика клуба**\n\n"
+        text += f"👥 Всего пользователей: **{total_users}**\n"
+        text += f"⭐ В белом списке: **{whitelist_count}**\n"
+        text += f"📊 Процент: **{round((whitelist_count / total_users * 100) if total_users > 0 else 0, 1)}%**\n\n"
+
+        # Статистика по подпискам
+        text += "📋 **Подписки:**\n"
+        text += f"  🔰 Пробный период: **{trial_count}**\n"
+        text += f"  💎 Активная подписка: **{subscribed_count}**\n"
+        text += f"  ⏰ Истекла: **{expired_count}**\n\n"
+
+        text += "👑 **Распределение по ролям:**\n"
         for role in WhitelistRole:
             count = stats.get(role.value, 0)
             if count > 0:
                 text += f"  {role.display_name}: {count}\n"
 
-        if total == 0:
+        if whitelist_count == 0:
             text += "  ❌ Белый список пуст\n"
+
+        # Список пользователей на пробном периоде
+        if trial_count > 0:
+            text += "\n🔰 **Пользователи на пробном периоде:**\n"
+            for user in trial_users[:10]:
+                subscription = self.subscription_service.get_by_user(user)
+                if subscription:
+                    text += f"  • {user.first_name} (@{user.username or 'нет'}) — до {subscription.trial_end.strftime('%d.%m.%Y')}\n"
+            if trial_count > 10:
+                text += f"  ... и ещё {trial_count - 10}\n"
+
+        # Список пользователей с активной подпиской
+        if subscribed_count > 0:
+            text += "\n💎 **Активная подписка:**\n"
+            for user in subscribed_users[:10]:
+                subscription = self.subscription_service.get_by_user(user)
+                if subscription:
+                    text += f"  • {user.first_name} (@{user.username or 'нет'}) — до {subscription.expires_at.strftime('%d.%m.%Y')}\n"
+            if subscribed_count > 10:
+                text += f"  ... и ещё {subscribed_count - 10}\n"
+
+        keyboard = [
+            [InlineKeyboardButton("◀️ Назад", callback_data="admin_menu")]
+        ]
 
         await query.edit_message_text(
             text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("◀️ Назад", callback_data="admin_menu")]
-            ])
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
         )
 
     async def add_self(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -467,7 +501,6 @@ class AdminHandler(BaseHandler):
             await query.edit_message_text("❌ Пользователь не найден")
             return
 
-        # Проверяем, есть ли уже в белом списке
         if self.whitelist_service.is_in_whitelist(db_user):
             role = self.whitelist_service.get_user_role(db_user)
             await query.edit_message_text(
@@ -479,7 +512,6 @@ class AdminHandler(BaseHandler):
             )
             return
 
-        # Добавляем в белый список
         entry = self.whitelist_service.add_to_whitelist(
             user=db_user,
             role=WhitelistRole.FOUNDER,
