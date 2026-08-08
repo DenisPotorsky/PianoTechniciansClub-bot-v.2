@@ -1,7 +1,7 @@
 """
 Обработчик административных команд с полной статистикой
 """
-
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from handlers.base_handler import BaseHandler
@@ -404,8 +404,12 @@ class AdminHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
 
-        # Получаем сервис подписок
-        subscription_service = SubscriptionService(self.user_service)  # 👈 ВРЕМЕННОЕ РЕШЕНИЕ
+        from app.database import Database
+        from app.config import config as app_config
+        from repositories.subscription_repository import SubscriptionRepository
+
+        db = Database(app_config.db_path)
+        sub_repo = SubscriptionRepository(db)
 
         # Получаем всех пользователей
         all_users = self.user_service.get_all_active()
@@ -427,20 +431,18 @@ class AdminHandler(BaseHandler):
         subscribed_users = []
         expired_users = []
 
-        # Импортируем SubscriptionRepository для доступа к БД
-        from repositories.subscription_repository import SubscriptionRepository
-        from app.database import Database
-        from app.config import config as app_config
-
-        db = Database(app_config.db_path)
-        sub_repo = SubscriptionRepository(db)
-
         for user in all_users:
             subscription = sub_repo.get_by_user_id(user.id)
             if subscription:
-                if subscription.is_trial:
-                    trial_users.append(user)
-                elif subscription.is_active and not subscription.is_expired:
+                # Проверяем, активен ли пробный период
+                if subscription.trial_start and subscription.trial_end:
+                    now = datetime.now()
+                    if subscription.trial_start <= now <= subscription.trial_end:
+                        trial_users.append(user)
+                        continue
+
+                # Проверяем активную подписку
+                if subscription.is_active and not subscription.is_expired:
                     subscribed_users.append(user)
                 elif subscription.is_expired:
                     expired_users.append(user)
@@ -476,7 +478,8 @@ class AdminHandler(BaseHandler):
             for user in trial_users[:10]:
                 subscription = sub_repo.get_by_user_id(user.id)
                 if subscription:
-                    text += f"  • {user.first_name} (@{user.username or 'нет'}) — до {subscription.trial_end.strftime('%d.%m.%Y')}\n"
+                    end_date = subscription.trial_end.strftime('%d.%m.%Y') if subscription.trial_end else 'не указана'
+                    text += f"  • {user.first_name} (@{user.username or 'нет'}) — до {end_date}\n"
             if trial_count > 10:
                 text += f"  ... и ещё {trial_count - 10}\n"
 
@@ -489,6 +492,11 @@ class AdminHandler(BaseHandler):
                     text += f"  • {user.first_name} (@{user.username or 'нет'}) — до {subscription.expires_at.strftime('%d.%m.%Y')}\n"
             if subscribed_count > 10:
                 text += f"  ... и ещё {subscribed_count - 10}\n"
+
+        # Добавляем проверку на пустые данные
+        if trial_count == 0 and subscribed_count == 0 and expired_count == 0:
+            text += "\nℹ️ Данные о подписках не найдены.\n"
+            text += "   Возможно, пользователи ещё не оформляли подписку.\n"
 
         keyboard = [
             [InlineKeyboardButton("◀️ Назад", callback_data="admin_menu")]
