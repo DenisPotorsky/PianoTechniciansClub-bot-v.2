@@ -1,13 +1,13 @@
 """
 Обработчик административных команд с полной статистикой
 """
+
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from handlers.base_handler import BaseHandler
 from services.whitelist_service import WhitelistService
 from services.user_service import UserService
-from services.subscription_service import SubscriptionService  # 👈 ДОБАВЛЯЕМ ИМПОРТ
 from models.whitelist import WhitelistRole
 from app.config import config
 
@@ -404,6 +404,7 @@ class AdminHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
 
+        # Подключаемся к базе данных
         from app.database import Database
         from app.config import config as app_config
         from repositories.subscription_repository import SubscriptionRepository
@@ -493,7 +494,7 @@ class AdminHandler(BaseHandler):
             if subscribed_count > 10:
                 text += f"  ... и ещё {subscribed_count - 10}\n"
 
-        # Добавляем проверку на пустые данные
+        # Если нет данных о подписках
         if trial_count == 0 and subscribed_count == 0 and expired_count == 0:
             text += "\nℹ️ Данные о подписках не найдены.\n"
             text += "   Возможно, пользователи ещё не оформляли подписку.\n"
