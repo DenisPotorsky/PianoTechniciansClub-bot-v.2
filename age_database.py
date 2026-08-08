@@ -54,7 +54,6 @@ class AgeDatabase:
 
             # Индексы для ускорения поиска
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brands_name ON brands(name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_brands_name_lower ON brands(LOWER(name))")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_serial_ranges_brand ON serial_ranges(brand_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_serial_ranges_serial ON serial_ranges(serial_start, serial_end)")
 
@@ -95,7 +94,6 @@ class AgeDatabase:
                 return brand_id
         except sqlite3.IntegrityError:
             logger.warning(f"Brand already exists: {name}")
-            # Возвращаем ID существующего бренда
             with self.get_connection() as conn:
                 cursor = conn.execute("SELECT id FROM brands WHERE name = ?", (name,))
                 row = cursor.fetchone()
@@ -132,11 +130,8 @@ class AgeDatabase:
             Список словарей с данными брендов
         """
         with self.get_connection() as conn:
-            # Приводим запрос к нижнему регистру
-            query_lower = query.lower()
-
             sql = "SELECT * FROM brands WHERE LOWER(name) LIKE LOWER(?)"
-            params = [f"%{query_lower}%"]
+            params = [f"%{query}%"]
 
             if brand_type:
                 sql += " AND type = ?"

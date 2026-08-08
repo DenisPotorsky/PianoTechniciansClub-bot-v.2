@@ -4,8 +4,7 @@
 
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, \
-    CallbackQueryHandler
+from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from handlers.base_handler import BaseHandler
 from age_detector import AgeDetector
 from services.access_service import AccessService
@@ -71,7 +70,7 @@ class AgeHandler(BaseHandler):
                     "🔒 Доступ к определению возраста открыт только для участников клуба!\n\n"
                     "Оформите подписку или обратитесь к администратору.",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🎹 Присоединиться", callback_data="subscribe")],
+                        [InlineKeyboardButton("🎹 Получить доступ", callback_data="subscribe")],
                         [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
                     ])
                 )
@@ -80,7 +79,7 @@ class AgeHandler(BaseHandler):
                     "🔒 Доступ к определению возраста открыт только для участников клуба!\n\n"
                     "Оформите подписку или обратитесь к администратору.",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🎹 Присоединиться", callback_data="subscribe")],
+                        [InlineKeyboardButton("🎹 Получить доступ", callback_data="subscribe")],
                         [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
                     ])
                 )
@@ -137,7 +136,7 @@ class AgeHandler(BaseHandler):
             f"Вы выбрали: **{type_name}** бренды.\n\n"
             f"Введите название бренда фортепиано.\n"
             f"📝 Пример: `Steinway`, `Yamaha`, `Красный Октябрь`\n\n"
-            f"Поиск работает по частичному совпадению.\n"
+            f"Поиск работает по частичному совпадению (регистр не важен).\n"
             f"Для отмены отправьте /cancel",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("◀️ Отмена", callback_data="cancel")]
@@ -147,7 +146,7 @@ class AgeHandler(BaseHandler):
         return INPUT_BRAND
 
     async def input_brand(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Ввод названия бренда"""
+        """Ввод названия бренда (регистронезависимый поиск)"""
         brand_name = update.message.text.strip()
 
         if not brand_name:
@@ -159,7 +158,7 @@ class AgeHandler(BaseHandler):
 
         context.user_data['brand_name'] = brand_name
 
-        # Проверяем, есть ли такой бренд
+        # Проверяем, есть ли такой бренд (регистронезависимый поиск)
         brand_type = context.user_data.get('brand_type')
         brand = await self.age_detector.db.get_brand_by_name(brand_name)
 
@@ -179,7 +178,7 @@ class AgeHandler(BaseHandler):
             )
             return INPUT_SERIAL
 
-        # Бренд не найден, ищем похожие
+        # Бренд не найден, ищем похожие (регистронезависимый поиск)
         similar = await self.age_detector.db.search_brands(brand_name, brand_type, limit=10)
 
         if similar:
