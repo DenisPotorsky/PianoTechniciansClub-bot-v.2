@@ -74,7 +74,8 @@ class PianoMasterBot:
         self.calculator_service = CalculatorService()
 
         # Инициализация базы данных для определения возраста фортепиано
-        AGE_DB_PATH = "piano_age.db"
+        # В __init__ методе:
+        AGE_DB_PATH = config.AGE_DB_PATH  # Используем из конфига
         try:
             self.age_db = AgeDatabase(AGE_DB_PATH)
             logger.info(f"Age database connected: {AGE_DB_PATH}")
