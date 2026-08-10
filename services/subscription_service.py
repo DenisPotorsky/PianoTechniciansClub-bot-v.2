@@ -63,6 +63,7 @@ class SubscriptionService(BaseService[Subscription]):
         """Начинает пробный период и СОХРАНЯЕТ в базу"""
         logger.info(f"🔄 Starting trial for user {user.id}")
 
+        # Проверяем, есть ли уже подписка
         subscription = self.subscription_repo.get_by_user_id(user.id)
 
         if subscription:
@@ -78,14 +79,25 @@ class SubscriptionService(BaseService[Subscription]):
             logger.info(f"   ✅ Trial started (updated): {result.trial_start} -> {result.trial_end}")
             return result
         else:
-            # Создаём новую подписку
+            # Создаём НОВУЮ подписку с пробным периодом
             logger.info(f"   No existing subscription, creating new")
+
+            now = datetime.now()
+            trial_end = now + timedelta(days=self.TRIAL_DAYS)
+
             subscription = Subscription(
                 id=0,
                 user_id=user.id,
-                expires_at=datetime.now() + timedelta(days=self.TRIAL_DAYS)
+                is_active=True,
+                starts_at=now,
+                expires_at=trial_end,
+                trial_start=now,
+                trial_end=trial_end,
+                created_at=now,
+                updated_at=now
             )
-            subscription.start_trial(self.TRIAL_DAYS)
+
+            # СОХРАНЯЕМ В БАЗУ
             result = self.subscription_repo.create(subscription)
             logger.info(f"   ✅ Trial started (created): {result.trial_start} -> {result.trial_end}")
             return result

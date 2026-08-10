@@ -19,6 +19,7 @@ class SubscriptionRepository(BaseRepository[Subscription]):
         logger.info(f"📝 Creating subscription for user {subscription.user_id}")
         logger.info(f"   trial_start: {subscription.trial_start}")
         logger.info(f"   trial_end: {subscription.trial_end}")
+        logger.info(f"   expires_at: {subscription.expires_at}")
 
         result = self.db.execute(
             """
@@ -29,7 +30,7 @@ class SubscriptionRepository(BaseRepository[Subscription]):
             """,
             (
                 subscription.user_id,
-                subscription.is_active,
+                1 if subscription.is_active else 0,
                 subscription.starts_at,
                 subscription.expires_at,
                 subscription.trial_start,
@@ -94,7 +95,7 @@ class SubscriptionRepository(BaseRepository[Subscription]):
             WHERE id = ?
             """,
             (
-                subscription.is_active,
+                1 if subscription.is_active else 0,
                 subscription.starts_at,
                 subscription.expires_at,
                 subscription.trial_start,
