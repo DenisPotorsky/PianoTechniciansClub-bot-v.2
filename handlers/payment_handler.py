@@ -11,6 +11,7 @@ from services.subscription_service import SubscriptionService
 from services.user_service import UserService
 from app.config import config
 from keyboards.inline_keyboards import get_subscription_success_keyboard
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ class PaymentHandler(BaseHandler):
         )
 
     async def start_trial(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Начало пробного периода"""
+        """Начало пробного периода — ПРЯМОЕ СОХРАНЕНИЕ В БАЗУ"""
         query = update.callback_query
         await query.answer()
 
@@ -111,38 +112,63 @@ class PaymentHandler(BaseHandler):
             return
 
         try:
-            logger.info(f"🔄 ЗАПУСК ПРОБНОГО ПЕРИОДА для {user.id} ({user.first_name})")
+            logger.info(f"🔄 ЗАПУСК ПРОБНОГО ПЕРИОДА для {user.id}")
 
-            # Запускаем пробный период
-            subscription = self.subscription_service.start_trial(db_user)
+            # ПРЯМОЕ СОХРАНЕНИЕ В БАЗУ
+            import sqlite3
+            conn = sqlite3.connect('/data/piano_club.db')
+            cursor = conn.cursor()
 
-            logger.info(f"✅ ПРОБНЫЙ ПЕРИОД АКТИВИРОВАН для {user.id}")
-            logger.info(f"   Начало: {subscription.trial_start}")
-            logger.info(f"   Окончание: {subscription.trial_end}")
-            logger.info(f"   ID подписки: {subscription.id}")
+            now = datetime.now()
+            trial_end = now + timedelta(days=7)
+
+            # Проверяем существующую подписку
+            cursor.execute('SELECT id, trial_start FROM subscriptions WHERE user_id = ?', (db_user.id,))
+            existing = cursor.fetchone()
+
+            if existing:
+                if existing[1] is not None:
+                    await query.edit_message_text(
+                        "❌ Пробный период уже был использован",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
+                        ])
+                    )
+                    conn.close()
+                    return
+
+                cursor.execute('''
+                    UPDATE subscriptions 
+                    SET trial_start = ?, trial_end = ?, is_active = 1, expires_at = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                ''', (now, trial_end, trial_end, db_user.id))
+                logger.info(f"   Обновлена подписка для {db_user.id}")
+            else:
+                cursor.execute('''
+                    INSERT INTO subscriptions (user_id, is_active, starts_at, expires_at, trial_start, trial_end)
+                    VALUES (?, 1, ?, ?, ?, ?)
+                ''', (db_user.id, now, trial_end, now, trial_end))
+                logger.info(f"   Создана новая подписка для {db_user.id}")
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"✅ ПРОБНЫЙ ПЕРИОД АКТИВИРОВАН для {user.id} до {trial_end}")
 
             await query.edit_message_text(
                 f"✅ **Пробный период активирован!**\n\n"
                 f"🔰 Вам доступны все функции клуба на 7 дней.\n"
-                f"📅 Действует до: {subscription.trial_end.strftime('%d.%m.%Y')}\n\n"
+                f"📅 Действует до: {trial_end.strftime('%d.%m.%Y')}\n\n"
                 f"📢 **Теперь вам доступны канал и чат мастеров!**\n\n"
                 f"После окончания пробного периода вы можете оформить полную подписку.",
                 reply_markup=get_subscription_success_keyboard(),
                 parse_mode="Markdown"
             )
 
-        except ValueError as e:
-            logger.warning(f"⚠️ Ошибка при запуске пробного периода: {e}")
-            await query.edit_message_text(
-                f"❌ {str(e)}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
-                ])
-            )
         except Exception as e:
-            logger.error(f"❌ Критическая ошибка при запуске пробного периода: {e}")
+            logger.error(f"❌ Ошибка: {e}")
             await query.edit_message_text(
-                f"❌ Ошибка при активации пробного периода: {str(e)}",
+                f"❌ Ошибка: {str(e)}",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
                 ])
