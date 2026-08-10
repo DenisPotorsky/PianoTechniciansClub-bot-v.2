@@ -24,9 +24,10 @@ class PaymentHandler(BaseHandler):
         self.payment_service = payment_service
         self.subscription_service = subscription_service
         self.user_service = user_service
+        logger.info("✅ PaymentHandler инициализирован")
 
     async def handle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Начало процесса получения доступа (автоматически)"""
+        """Начало процесса получения доступа"""
         query = update.callback_query
         await query.answer()
 
@@ -110,13 +111,15 @@ class PaymentHandler(BaseHandler):
             return
 
         try:
-            logger.info(f"🔄 Starting trial for user {user.id}")
+            logger.info(f"🔄 ЗАПУСК ПРОБНОГО ПЕРИОДА для {user.id} ({user.first_name})")
 
+            # Запускаем пробный период
             subscription = self.subscription_service.start_trial(db_user)
 
-            logger.info(f"✅ Trial started for user {user.id}")
-            logger.info(f"   Trial start: {subscription.trial_start}")
-            logger.info(f"   Trial end: {subscription.trial_end}")
+            logger.info(f"✅ ПРОБНЫЙ ПЕРИОД АКТИВИРОВАН для {user.id}")
+            logger.info(f"   Начало: {subscription.trial_start}")
+            logger.info(f"   Окончание: {subscription.trial_end}")
+            logger.info(f"   ID подписки: {subscription.id}")
 
             await query.edit_message_text(
                 f"✅ **Пробный период активирован!**\n\n"
@@ -129,6 +132,7 @@ class PaymentHandler(BaseHandler):
             )
 
         except ValueError as e:
+            logger.warning(f"⚠️ Ошибка при запуске пробного периода: {e}")
             await query.edit_message_text(
                 f"❌ {str(e)}",
                 reply_markup=InlineKeyboardMarkup([
@@ -136,7 +140,7 @@ class PaymentHandler(BaseHandler):
                 ])
             )
         except Exception as e:
-            logger.error(f"Error starting trial: {e}")
+            logger.error(f"❌ Критическая ошибка при запуске пробного периода: {e}")
             await query.edit_message_text(
                 f"❌ Ошибка при активации пробного периода: {str(e)}",
                 reply_markup=InlineKeyboardMarkup([
@@ -207,7 +211,7 @@ class PaymentHandler(BaseHandler):
             subscription = self.subscription_service.activate_subscription(db_user)
             self.payment_service.complete_payment(payment_id, db_user.id)
 
-            logger.info(f"✅ User {user.id} activated subscription")
+            logger.info(f"✅ ПОДПИСКА АКТИВИРОВАНА для {user.id}")
 
             await query.edit_message_text(
                 "✅ **Подписка активирована!**\n\n"

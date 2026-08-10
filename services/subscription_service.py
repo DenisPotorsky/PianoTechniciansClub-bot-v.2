@@ -21,7 +21,7 @@ class SubscriptionService(BaseService[Subscription]):
 
     def __init__(self, subscription_repo: SubscriptionRepository):
         self.subscription_repo = subscription_repo
-        logger.info("SubscriptionService initialized")
+        logger.info("✅ SubscriptionService инициализирован")
 
     def create(self, data: dict) -> Subscription:
         subscription = Subscription(
@@ -37,14 +37,21 @@ class SubscriptionService(BaseService[Subscription]):
     def get_by_user(self, user: User) -> Optional[Subscription]:
         return self.subscription_repo.get_by_user_id(user.id)
 
+    def get_all_subscriptions(self, user: User) -> List[Subscription]:
+        return self.subscription_repo.get_all_by_user_id(user.id)
+
     def has_active_subscription(self, user: User) -> bool:
         subscription = self.get_by_user(user)
         if not subscription:
+            logger.debug(f"Нет подписки для user {user.id}")
             return False
         if not subscription.is_active:
+            logger.debug(f"Подписка неактивна для user {user.id}")
             return False
         if subscription.is_expired:
+            logger.debug(f"Подписка истекла для user {user.id}")
             return False
+        logger.debug(f"Подписка активна для user {user.id}")
         return True
 
     def is_on_trial(self, user: User) -> bool:
@@ -60,47 +67,51 @@ class SubscriptionService(BaseService[Subscription]):
         return subscription.trial_start is not None
 
     def start_trial(self, user: User) -> Subscription:
-        """Начинает пробный период и СОХРАНЯЕТ в базу"""
-        logger.info(f"🔄 Starting trial for user {user.id}")
+        """
+        Начинает пробный период для пользователя и СОХРАНЯЕТ в базу
+        """
+        logger.info(f"🔄 НАЧАЛО ПРОБНОГО ПЕРИОДА для user {user.id} ({user.first_name})")
 
         # Проверяем, есть ли уже подписка
-        subscription = self.subscription_repo.get_by_user_id(user.id)
+        existing = self.subscription_repo.get_by_user_id(user.id)
 
-        if subscription:
-            logger.info(f"   Existing subscription found: id={subscription.id}")
+        if existing:
+            logger.info(f"   Найдена существующая подписка id={existing.id}")
 
-            if subscription.trial_start is not None:
-                logger.warning(f"   Trial already used for user {user.id}")
+            if existing.trial_start is not None:
+                logger.warning(f"   Пробный период уже использован для user {user.id}")
                 raise ValueError("Пробный период уже был использован")
 
             # Обновляем существующую подписку
-            subscription.start_trial(self.TRIAL_DAYS)
-            result = self.subscription_repo.update(subscription)
-            logger.info(f"   ✅ Trial started (updated): {result.trial_start} -> {result.trial_end}")
+            existing.start_trial(self.TRIAL_DAYS)
+            result = self.subscription_repo.update(existing)
+            logger.info(f"   ✅ ПРОБНЫЙ ПЕРИОД ОБНОВЛЁН: {result.trial_start} -> {result.trial_end}")
             return result
-        else:
-            # Создаём НОВУЮ подписку с пробным периодом
-            logger.info(f"   No existing subscription, creating new")
 
-            now = datetime.now()
-            trial_end = now + timedelta(days=self.TRIAL_DAYS)
+        # Создаём НОВУЮ подписку
+        logger.info(f"   Создаём новую подписку для user {user.id}")
 
-            subscription = Subscription(
-                id=0,
-                user_id=user.id,
-                is_active=True,
-                starts_at=now,
-                expires_at=trial_end,
-                trial_start=now,
-                trial_end=trial_end,
-                created_at=now,
-                updated_at=now
-            )
+        now = datetime.now()
+        trial_end = now + timedelta(days=self.TRIAL_DAYS)
 
-            # СОХРАНЯЕМ В БАЗУ
-            result = self.subscription_repo.create(subscription)
-            logger.info(f"   ✅ Trial started (created): {result.trial_start} -> {result.trial_end}")
-            return result
+        subscription = Subscription(
+            id=0,
+            user_id=user.id,
+            is_active=True,
+            starts_at=now,
+            expires_at=trial_end,
+            trial_start=now,
+            trial_end=trial_end,
+            created_at=now,
+            updated_at=now
+        )
+
+        # СОХРАНЯЕМ В БАЗУ
+        result = self.subscription_repo.create(subscription)
+        logger.info(f"   ✅ ПРОБНЫЙ ПЕРИОД СОЗДАН: {result.trial_start} -> {result.trial_end}")
+        logger.info(f"   ✅ ID подписки: {result.id}")
+
+        return result
 
     def activate_subscription(self, user: User, days: int = None) -> Subscription:
         if days is None:
@@ -150,7 +161,7 @@ class SubscriptionService(BaseService[Subscription]):
             subscription.deactivate()
             self.subscription_repo.update(subscription)
             expired_users.append(subscription.user_id)
-            logger.info(f"⏰ Subscription expired for user {subscription.user_id}")
+            logger.info(f"⏰ Подписка истекла для user {subscription.user_id}")
 
         return expired_users
 
@@ -162,3 +173,11 @@ class SubscriptionService(BaseService[Subscription]):
         if not subscription:
             return "❌ Нет подписки"
         return subscription.status_text
+
+    def get_statistics(self) -> dict:
+        """Получение статистики по подпискам"""
+        return {
+            'active_trials': self.subscription_repo.count_active_trials(),
+            'active_subscriptions': self.subscription_repo.count_active_subscriptions(),
+            'expired_subscriptions': self.subscription_repo.count_expired_subscriptions()
+        }
