@@ -22,7 +22,6 @@ class Subscription:
 
     @property
     def days_left(self) -> int:
-        """Количество дней до истечения"""
         if not self.is_active:
             return 0
         delta = self.expires_at - datetime.now()
@@ -30,21 +29,18 @@ class Subscription:
 
     @property
     def is_expired(self) -> bool:
-        """Проверка на истечение"""
         if not self.is_active:
             return True
         return datetime.now() > self.expires_at
 
     @property
     def is_trial(self) -> bool:
-        """Проверка, активен ли пробный период"""
         if not self.trial_start or not self.trial_end:
             return False
         return self.trial_start <= datetime.now() <= self.trial_end
 
     @property
     def trial_days_left(self) -> int:
-        """Количество дней до окончания пробного периода"""
         if not self.trial_end:
             return 0
         if datetime.now() > self.trial_end:
@@ -54,14 +50,12 @@ class Subscription:
 
     @property
     def has_trial_available(self) -> bool:
-        """Проверка, доступен ли пробный период (был ли уже использован)"""
         if self.trial_start:
             return False
         return True
 
     @property
     def status_text(self) -> str:
-        """Текстовое описание статуса подписки"""
         if not self.is_active:
             return "❌ Неактивна"
         if self.is_trial:
@@ -78,9 +72,9 @@ class Subscription:
         self.is_active = True
         self.starts_at = datetime.now()
         self.updated_at = datetime.now()
+        print(f"🔰 Trial started: {self.trial_start} -> {self.trial_end}")
 
     def extend(self, days: int = 30):
-        """Продление подписки (после пробного периода)"""
         if self.is_expired:
             self.starts_at = datetime.now()
         self.expires_at = self.expires_at + timedelta(days=days)
@@ -88,6 +82,5 @@ class Subscription:
         self.updated_at = datetime.now()
 
     def deactivate(self):
-        """Деактивация подписки"""
         self.is_active = False
         self.updated_at = datetime.now()

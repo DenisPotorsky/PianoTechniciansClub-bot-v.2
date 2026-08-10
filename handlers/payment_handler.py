@@ -38,10 +38,8 @@ class PaymentHandler(BaseHandler):
             last_name=user.last_name
         )
 
-        # Проверяем, есть ли уже подписка
         subscription = self.subscription_service.get_by_user(db_user)
 
-        # Если подписка уже активна — показываем статус
         if subscription and subscription.is_active and not subscription.is_expired:
             status_text = "✅ У вас уже есть активный доступ!"
             if subscription.is_trial:
@@ -59,7 +57,6 @@ class PaymentHandler(BaseHandler):
             )
             return
 
-        # Проверяем, доступен ли пробный период
         can_start_trial = not subscription or subscription.has_trial_available
 
         keyboard = []
@@ -96,7 +93,7 @@ class PaymentHandler(BaseHandler):
         )
 
     async def start_trial(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Начало пробного периода (автоматически, без заявок)"""
+        """Начало пробного периода"""
         query = update.callback_query
         await query.answer()
 
@@ -113,15 +110,14 @@ class PaymentHandler(BaseHandler):
             return
 
         try:
-            # Запускаем пробный период
+            logger.info(f"🔄 Starting trial for user {user.id}")
+
             subscription = self.subscription_service.start_trial(db_user)
 
-            # Логируем в консоль
-            logger.info(f"✅ User {user.id} started trial period")
+            logger.info(f"✅ Trial started for user {user.id}")
             logger.info(f"   Trial start: {subscription.trial_start}")
             logger.info(f"   Trial end: {subscription.trial_end}")
 
-            # ✅ Сразу даём доступ
             await query.edit_message_text(
                 f"✅ **Пробный период активирован!**\n\n"
                 f"🔰 Вам доступны все функции клуба на 7 дней.\n"
@@ -149,7 +145,7 @@ class PaymentHandler(BaseHandler):
             )
 
     async def pay_subscription(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Оформление платной подписки (автоматически после оплаты)"""
+        """Оформление платной подписки"""
         query = update.callback_query
         await query.answer()
 
@@ -161,7 +157,6 @@ class PaymentHandler(BaseHandler):
             last_name=user.last_name
         )
 
-        # Создаём платёж
         payment_obj, payment_url = self.payment_service.create_payment(
             db_user, config.SUBSCRIPTION_PRICE
         )
@@ -209,10 +204,7 @@ class PaymentHandler(BaseHandler):
                 )
                 return
 
-            # Активируем подписку
             subscription = self.subscription_service.activate_subscription(db_user)
-
-            # Отмечаем платеж как завершенный
             self.payment_service.complete_payment(payment_id, db_user.id)
 
             logger.info(f"✅ User {user.id} activated subscription")

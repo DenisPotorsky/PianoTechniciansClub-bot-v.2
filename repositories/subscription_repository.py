@@ -6,13 +6,20 @@ from typing import Optional, List
 from datetime import datetime
 from models.subscription import Subscription
 from repositories.base_repository import BaseRepository
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SubscriptionRepository(BaseRepository[Subscription]):
     """Репозиторий подписок с поддержкой пробного периода"""
 
     def create(self, subscription: Subscription) -> Subscription:
-        """Создание подписки"""
+        """Создание подписки с пробным периодом"""
+        logger.info(f"📝 Creating subscription for user {subscription.user_id}")
+        logger.info(f"   trial_start: {subscription.trial_start}")
+        logger.info(f"   trial_end: {subscription.trial_end}")
+
         result = self.db.execute(
             """
             INSERT INTO subscriptions (
@@ -30,10 +37,10 @@ class SubscriptionRepository(BaseRepository[Subscription]):
             )
         )
         subscription.id = result.lastrowid
+        logger.info(f"   ✅ Created subscription id={subscription.id}")
         return subscription
 
     def get_by_id(self, id: int) -> Optional[Subscription]:
-        """Получение подписки по ID"""
         data = self.db.fetch_one(
             "SELECT * FROM subscriptions WHERE id = ?",
             (id,)
@@ -41,7 +48,6 @@ class SubscriptionRepository(BaseRepository[Subscription]):
         return self._dict_to_subscription(data) if data else None
 
     def get_by_user_id(self, user_id: int) -> Optional[Subscription]:
-        """Получение активной подписки пользователя"""
         data = self.db.fetch_one(
             """
             SELECT * FROM subscriptions 
@@ -53,7 +59,6 @@ class SubscriptionRepository(BaseRepository[Subscription]):
         return self._dict_to_subscription(data) if data else None
 
     def get_expired_active(self) -> List[Subscription]:
-        """Получение всех активных истекших подписок"""
         data_list = self.db.fetch_all(
             """
             SELECT * FROM subscriptions 
@@ -63,7 +68,6 @@ class SubscriptionRepository(BaseRepository[Subscription]):
         return [self._dict_to_subscription(data) for data in data_list]
 
     def get_trials_expiring_soon(self, days: int = 1) -> List[Subscription]:
-        """Получение пробных периодов, которые истекают скоро"""
         data_list = self.db.fetch_all(
             """
             SELECT * FROM subscriptions 
@@ -77,7 +81,11 @@ class SubscriptionRepository(BaseRepository[Subscription]):
         return [self._dict_to_subscription(data) for data in data_list]
 
     def update(self, subscription: Subscription) -> Subscription:
-        """Обновление подписки"""
+        """Обновление подписки с пробным периодом"""
+        logger.info(f"📝 Updating subscription id={subscription.id}")
+        logger.info(f"   trial_start: {subscription.trial_start}")
+        logger.info(f"   trial_end: {subscription.trial_end}")
+
         self.db.execute(
             """
             UPDATE subscriptions 
@@ -94,10 +102,10 @@ class SubscriptionRepository(BaseRepository[Subscription]):
                 subscription.id
             )
         )
+        logger.info(f"   ✅ Updated subscription id={subscription.id}")
         return subscription
 
     def delete(self, id: int) -> bool:
-        """Удаление подписки"""
         result = self.db.execute(
             "DELETE FROM subscriptions WHERE id = ?",
             (id,)
@@ -105,7 +113,6 @@ class SubscriptionRepository(BaseRepository[Subscription]):
         return result.rowcount > 0
 
     def get_all_active(self) -> List[Subscription]:
-        """Получение всех активных подписок"""
         data_list = self.db.fetch_all(
             "SELECT * FROM subscriptions WHERE is_active = 1"
         )
@@ -113,7 +120,6 @@ class SubscriptionRepository(BaseRepository[Subscription]):
 
     @staticmethod
     def _dict_to_subscription(data: dict) -> Subscription:
-        """Преобразование словаря в объект"""
         return Subscription(
             id=data['id'],
             user_id=data['user_id'],
