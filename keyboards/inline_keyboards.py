@@ -44,6 +44,15 @@ def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboard
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_subscription_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для оформления подписки или пробного периода"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔰 Начать пробный период", callback_data="start_trial")],
+        [InlineKeyboardButton("💳 Оплатить подписку", callback_data="pay_subscription")],
+        [InlineKeyboardButton("◀️ Назад", callback_data="menu")]
+    ])
+
+
 def get_subscription_success_keyboard() -> InlineKeyboardMarkup:
     """
     Клавиатура после успешной активации подписки или пробного периода.
