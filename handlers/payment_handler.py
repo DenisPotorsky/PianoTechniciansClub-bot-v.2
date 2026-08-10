@@ -116,7 +116,7 @@ class PaymentHandler(BaseHandler):
             # Запускаем пробный период
             subscription = self.subscription_service.start_trial(db_user)
 
-            # Логируем
+            # Логируем в консоль
             logger.info(f"✅ User {user.id} started trial period")
             logger.info(f"   Trial start: {subscription.trial_start}")
             logger.info(f"   Trial end: {subscription.trial_end}")
