@@ -1,3 +1,7 @@
+"""
+Модель пользователя
+"""
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -24,10 +28,13 @@ class User:
 
     @property
     def display_name(self) -> str:
-        """Имя для отображения"""
+        """
+        Имя для отображения.
+        Если есть username — показывает его, иначе показывает ID.
+        """
         if self.username:
             return f"@{self.username}"
-        return self.full_name
+        return f"ID: {self.telegram_id}"
 
     def to_dict(self) -> dict:
         """Преобразование в словарь"""

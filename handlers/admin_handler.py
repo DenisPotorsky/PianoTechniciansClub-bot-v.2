@@ -79,7 +79,7 @@ class AdminHandler(BaseHandler):
             )
 
     async def show_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает список участников белого списка"""
+        """Показывает список участников белого списка (включая пользователей без username)"""
         query = update.callback_query
         await query.answer()
 
@@ -102,7 +102,11 @@ class AdminHandler(BaseHandler):
             if entry:
                 role_name = entry.role.display_name
                 expires = f" (до {entry.expires_at.strftime('%d.%m.%Y')})" if entry.expires_at else " (бессрочно)"
-                text += f"{idx}. ID: {user.telegram_id} - {user.display_name}\n"
+
+                # ✅ Показываем username или ID, если username нет
+                display_name = f"@{user.username}" if user.username else f"ID: {user.telegram_id}"
+
+                text += f"{idx}. {display_name}\n"
                 text += f"   {role_name}{expires}\n"
                 if entry.reason:
                     text += f"   Причина: {entry.reason}\n"
@@ -304,7 +308,8 @@ class AdminHandler(BaseHandler):
         for user in users:
             entry = self.whitelist_service.get_by_user(user)
             if entry:
-                text += f"• {user.telegram_id} - {user.display_name} ({entry.role.display_name})\n"
+                display_name = f"@{user.username}" if user.username else f"ID: {user.telegram_id}"
+                text += f"• {display_name} ({entry.role.display_name})\n"
 
         text += "\nДля отмены отправьте /cancel"
 
@@ -479,8 +484,9 @@ class AdminHandler(BaseHandler):
             for user in trial_users[:10]:
                 subscription = sub_repo.get_by_user_id(user.id)
                 if subscription:
+                    display_name = f"@{user.username}" if user.username else f"ID: {user.telegram_id}"
                     end_date = subscription.trial_end.strftime('%d.%m.%Y') if subscription.trial_end else 'не указана'
-                    text += f"  • {user.first_name} (@{user.username or 'нет'}) — до {end_date}\n"
+                    text += f"  • {display_name} — до {end_date}\n"
             if trial_count > 10:
                 text += f"  ... и ещё {trial_count - 10}\n"
 
@@ -490,7 +496,8 @@ class AdminHandler(BaseHandler):
             for user in subscribed_users[:10]:
                 subscription = sub_repo.get_by_user_id(user.id)
                 if subscription:
-                    text += f"  • {user.first_name} (@{user.username or 'нет'}) — до {subscription.expires_at.strftime('%d.%m.%Y')}\n"
+                    display_name = f"@{user.username}" if user.username else f"ID: {user.telegram_id}"
+                    text += f"  • {display_name} — до {subscription.expires_at.strftime('%d.%m.%Y')}\n"
             if subscribed_count > 10:
                 text += f"  ... и ещё {subscribed_count - 10}\n"
 

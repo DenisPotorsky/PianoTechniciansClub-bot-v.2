@@ -1,5 +1,5 @@
 """
-Обработчик платежей и пробного периода (автоматический доступ)
+Обработчик платежей и пробного периода
 """
 
 import logging
@@ -118,8 +118,10 @@ class PaymentHandler(BaseHandler):
 
             # Логируем
             logger.info(f"✅ User {user.id} started trial period")
+            logger.info(f"   Trial start: {subscription.trial_start}")
+            logger.info(f"   Trial end: {subscription.trial_end}")
 
-            # ✅ Сразу даём доступ — НЕ отправляем заявку админу!
+            # ✅ Сразу даём доступ
             await query.edit_message_text(
                 f"✅ **Пробный период активирован!**\n\n"
                 f"🔰 Вам доступны все функции клуба на 7 дней.\n"
