@@ -253,6 +253,7 @@ class PianoMasterBot:
         """Обработчик callback-запросов"""
         query = update.callback_query
         data = query.data
+        logger.info(f"📩 Получен callback: {data}")
 
         try:
             if data == "menu":
