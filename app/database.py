@@ -1,14 +1,11 @@
 """
-Модуль для работы с базой данных с поддержкой пробного периода
+Модуль для работы с базой данных
 """
 
 import sqlite3
-from typing import Optional, Any, List, Dict
+from typing import Optional, List, Dict
 from contextlib import contextmanager
 from datetime import datetime
-import json
-import os
-from pathlib import Path
 from utils.logger import logger
 
 
@@ -18,9 +15,10 @@ class Database:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._init_database()
+        logger.info(f"Database initialized at: {db_path}")
 
     def _init_database(self):
-        """Инициализация всех таблиц с проверкой существующих колонок"""
+        """Инициализация всех таблиц"""
         with self.get_connection() as conn:
             # Таблица пользователей
             conn.execute("""
@@ -36,7 +34,7 @@ class Database:
                 )
             """)
 
-            # Таблица подписок (с поддержкой пробного периода)
+            # Таблица подписок
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS subscriptions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,18 +49,6 @@ class Database:
                     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
             """)
-
-            # 👇 ПРОВЕРЯЕМ И ДОБАВЛЯЕМ НЕДОСТАЮЩИЕ КОЛОНКИ ДЛЯ ПРОБНОГО ПЕРИОДА
-            cursor = conn.execute("PRAGMA table_info(subscriptions)")
-            columns = [row[1] for row in cursor.fetchall()]
-
-            if 'trial_start' not in columns:
-                conn.execute("ALTER TABLE subscriptions ADD COLUMN trial_start TIMESTAMP")
-                logger.info("✅ Added column trial_start to subscriptions")
-
-            if 'trial_end' not in columns:
-                conn.execute("ALTER TABLE subscriptions ADD COLUMN trial_end TIMESTAMP")
-                logger.info("✅ Added column trial_end to subscriptions")
 
             # Таблица платежей
             conn.execute("""
@@ -95,17 +81,27 @@ class Database:
                 )
             """)
 
-            # Индексы для оптимизации
+            # Индексы
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_telegram ON users(telegram_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_active ON subscriptions(is_active)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_trial ON subscriptions(trial_start, trial_end)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_whitelist_user ON whitelist(user_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_whitelist_active ON whitelist(is_active)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id)")
 
+            # Проверяем наличие колонок для пробного периода
+            cursor = conn.execute("PRAGMA table_info(subscriptions)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'trial_start' not in columns:
+                conn.execute("ALTER TABLE subscriptions ADD COLUMN trial_start TIMESTAMP")
+                logger.info("✅ Добавлена колонка trial_start")
+
+            if 'trial_end' not in columns:
+                conn.execute("ALTER TABLE subscriptions ADD COLUMN trial_end TIMESTAMP")
+                logger.info("✅ Добавлена колонка trial_end")
+
             conn.commit()
-            logger.info(f"✅ Database initialized at: {self.db_path}")
 
     @contextmanager
     def get_connection(self):
@@ -118,76 +114,25 @@ class Database:
             conn.close()
 
     def execute(self, query: str, params: tuple = ()) -> sqlite3.Cursor:
-        """Выполнение запроса"""
         with self.get_connection() as conn:
             cursor = conn.execute(query, params)
             conn.commit()
             return cursor
 
     def execute_many(self, query: str, params: List[tuple]) -> int:
-        """Выполнение множества запросов"""
         with self.get_connection() as conn:
             cursor = conn.executemany(query, params)
             conn.commit()
             return cursor.rowcount
 
     def fetch_one(self, query: str, params: tuple = ()) -> Optional[Dict]:
-        """Получение одной записи"""
         with self.get_connection() as conn:
             cursor = conn.execute(query, params)
             row = cursor.fetchone()
             return dict(row) if row else None
 
     def fetch_all(self, query: str, params: tuple = ()) -> List[Dict]:
-        """Получение всех записей"""
         with self.get_connection() as conn:
             cursor = conn.execute(query, params)
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
-
-    # ============ МЕТОДЫ ДЛЯ РАБОТЫ С ПРОБНЫМ ПЕРИОДОМ ============
-
-    def get_trial_subscriptions(self) -> List[Dict]:
-        """Получение всех активных пробных периодов"""
-        with self.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT s.*, u.telegram_id, u.username, u.first_name, u.last_name
-                FROM subscriptions s
-                JOIN users u ON u.id = s.user_id
-                WHERE s.is_active = 1 
-                AND s.trial_start IS NOT NULL 
-                AND s.trial_end IS NOT NULL
-                AND s.trial_end >= datetime('now')
-                ORDER BY s.trial_end ASC
-            """)
-            return [dict(row) for row in cursor.fetchall()]
-
-    def get_expired_trials(self) -> List[Dict]:
-        """Получение истекших пробных периодов"""
-        with self.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT s.*, u.telegram_id, u.username, u.first_name, u.last_name
-                FROM subscriptions s
-                JOIN users u ON u.id = s.user_id
-                WHERE s.is_active = 1 
-                AND s.trial_start IS NOT NULL 
-                AND s.trial_end IS NOT NULL
-                AND s.trial_end < datetime('now')
-            """)
-            return [dict(row) for row in cursor.fetchall()]
-
-    def get_trials_expiring_soon(self, days: int = 1) -> List[Dict]:
-        """Получение пробных периодов, которые истекают скоро"""
-        with self.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT s.*, u.telegram_id, u.username, u.first_name, u.last_name
-                FROM subscriptions s
-                JOIN users u ON u.id = s.user_id
-                WHERE s.is_active = 1 
-                AND s.trial_start IS NOT NULL 
-                AND s.trial_end IS NOT NULL
-                AND s.trial_end >= datetime('now')
-                AND s.trial_end <= datetime('now', '+' || ? || ' days')
-                ORDER BY s.trial_end ASC
-            """, (days,))
-            return [dict(row) for row in cursor.fetchall()]

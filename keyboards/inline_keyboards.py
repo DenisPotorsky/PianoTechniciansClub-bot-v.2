@@ -3,20 +3,17 @@
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from typing import List, Dict
+from typing import List
 from app.config import config
 
 
 def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboardMarkup:
-    """
-    Создаёт главную клавиатуру в зависимости от доступа пользователя.
-    """
+    """Создаёт главную клавиатуру"""
     keyboard: List[List[InlineKeyboardButton]] = [
         [InlineKeyboardButton("📖 О проекте", callback_data="about")]
     ]
 
     if has_access:
-        # Доступ открыт — показываем все функции
         keyboard.extend([
             [
                 InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),
@@ -27,7 +24,6 @@ def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboard
             [InlineKeyboardButton("🔄 Статус доступа", callback_data="status")]
         ])
 
-        # Если пользователь в белом списке с правами админа — добавляем админ-кнопку
         if access_type.startswith("whitelist_"):
             role = access_type.replace("whitelist_", "")
             if role in ["founder", "expert"]:
@@ -35,17 +31,15 @@ def get_main_keyboard(has_access: bool, access_type: str = "") -> InlineKeyboard
                     [InlineKeyboardButton("👑 Управление", callback_data="admin_menu")]
                 )
     else:
-        # Доступ закрыт — только кнопка получения доступа
         keyboard.append([InlineKeyboardButton("🎹 Получить доступ", callback_data="subscribe")])
 
-    # Кнопка помощи всегда внизу
     keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help")])
 
     return InlineKeyboardMarkup(keyboard)
 
 
 def get_subscription_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для оформления подписки или пробного периода"""
+    """Клавиатура для оформления подписки"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔰 Начать пробный период", callback_data="start_trial")],
         [InlineKeyboardButton("💳 Оплатить подписку", callback_data="pay_subscription")],
@@ -54,9 +48,7 @@ def get_subscription_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_subscription_success_keyboard() -> InlineKeyboardMarkup:
-    """
-    Клавиатура после успешной активации подписки или пробного периода.
-    """
+    """Клавиатура после успешной активации"""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📢 Канал", url=config.CHANNEL_URL),

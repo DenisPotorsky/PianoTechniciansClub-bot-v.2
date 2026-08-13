@@ -3,6 +3,8 @@
 """
 
 import logging
+import sqlite3
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from handlers.base_handler import BaseHandler
@@ -11,7 +13,6 @@ from services.subscription_service import SubscriptionService
 from services.user_service import UserService
 from app.config import config
 from keyboards.inline_keyboards import get_subscription_success_keyboard
-from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,10 @@ class PaymentHandler(BaseHandler):
             last_name=user.last_name
         )
 
+        # Проверяем подписку через сервис
         subscription = self.subscription_service.get_by_user(db_user)
 
+        # Если есть активная подписка
         if subscription and subscription.is_active and not subscription.is_expired:
             status_text = "✅ У вас уже есть активный доступ!"
             if subscription.is_trial:
@@ -59,6 +62,7 @@ class PaymentHandler(BaseHandler):
             )
             return
 
+        # Проверяем, можно ли начать пробный период
         can_start_trial = not subscription or subscription.has_trial_available
 
         keyboard = []
@@ -95,7 +99,9 @@ class PaymentHandler(BaseHandler):
         )
 
     async def start_trial(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Начало пробного периода — ПРЯМОЕ СОХРАНЕНИЕ В БАЗУ"""
+        """
+        Начало пробного периода — ПРЯМОЕ СОХРАНЕНИЕ В БАЗУ
+        """
         query = update.callback_query
         await query.answer()
 
@@ -112,18 +118,21 @@ class PaymentHandler(BaseHandler):
             return
 
         try:
-            logger.info(f"🔄 ЗАПУСК ПРОБНОГО ПЕРИОДА для {user.id}")
+            logger.info(f"🔄 ЗАПУСК ПРОБНОГО ПЕРИОДА для {user.id} ({user.first_name})")
 
-            # ПРЯМОЕ СОХРАНЕНИЕ В БАЗУ
-            import sqlite3
-            conn = sqlite3.connect('/data/piano_club.db')
+            # ПРЯМОЕ ПОДКЛЮЧЕНИЕ К БАЗЕ
+            conn = sqlite3.connect('data/piano_club.db')
             cursor = conn.cursor()
 
             now = datetime.now()
             trial_end = now + timedelta(days=7)
 
             # Проверяем существующую подписку
-            cursor.execute('SELECT id, trial_start FROM subscriptions WHERE user_id = ?', (db_user.id,))
+            cursor.execute('''
+                SELECT id, trial_start FROM subscriptions 
+                WHERE user_id = ? AND is_active = 1
+                ORDER BY expires_at DESC LIMIT 1
+            ''', (db_user.id,))
             existing = cursor.fetchone()
 
             if existing:
@@ -137,23 +146,32 @@ class PaymentHandler(BaseHandler):
                     conn.close()
                     return
 
+                # Обновляем существующую подписку
                 cursor.execute('''
                     UPDATE subscriptions 
-                    SET trial_start = ?, trial_end = ?, is_active = 1, expires_at = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE user_id = ?
-                ''', (now, trial_end, trial_end, db_user.id))
-                logger.info(f"   Обновлена подписка для {db_user.id}")
+                    SET trial_start = ?, trial_end = ?, 
+                        is_active = 1, 
+                        expires_at = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (now, trial_end, trial_end, existing[0]))
+                logger.info(f"   Обновлена подписка id={existing[0]}")
             else:
+                # Создаём новую подписку
                 cursor.execute('''
-                    INSERT INTO subscriptions (user_id, is_active, starts_at, expires_at, trial_start, trial_end)
-                    VALUES (?, 1, ?, ?, ?, ?)
+                    INSERT INTO subscriptions (
+                        user_id, is_active, 
+                        starts_at, expires_at, 
+                        trial_start, trial_end
+                    ) VALUES (?, 1, ?, ?, ?, ?)
                 ''', (db_user.id, now, trial_end, now, trial_end))
-                logger.info(f"   Создана новая подписка для {db_user.id}")
+                new_id = cursor.lastrowid
+                logger.info(f"   Создана новая подписка id={new_id}")
 
             conn.commit()
             conn.close()
 
-            logger.info(f"✅ ПРОБНЫЙ ПЕРИОД АКТИВИРОВАН для {user.id} до {trial_end}")
+            logger.info(f"✅ ПРОБНЫЙ ПЕРИОД АКТИВИРОВАН для {user.id} до {trial_end.strftime('%d.%m.%Y')}")
 
             await query.edit_message_text(
                 f"✅ **Пробный период активирован!**\n\n"
@@ -166,7 +184,7 @@ class PaymentHandler(BaseHandler):
             )
 
         except Exception as e:
-            logger.error(f"❌ Ошибка: {e}")
+            logger.error(f"❌ Ошибка при активации пробного периода: {e}")
             await query.edit_message_text(
                 f"❌ Ошибка: {str(e)}",
                 reply_markup=InlineKeyboardMarkup([

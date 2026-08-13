@@ -1,5 +1,5 @@
 """
-Обработчик административных команд с полной статистикой
+Обработчик административных команд
 """
 
 from datetime import datetime
@@ -47,7 +47,7 @@ class AdminHandler(BaseHandler):
         can_manage = self.whitelist_service.can_manage_whitelist(db_user)
 
         keyboard = [
-            [InlineKeyboardButton("📋 Список участников", callback_data="admin_whitelist_list")],
+            [InlineKeyboardButton("📋 Показать белый список", callback_data="admin_whitelist_list")],
             [InlineKeyboardButton("➕ Добавить участника", callback_data="admin_whitelist_add")],
             [InlineKeyboardButton("❌ Удалить участника", callback_data="admin_whitelist_remove")],
             [InlineKeyboardButton("📊 Статистика", callback_data="admin_whitelist_stats")],
@@ -79,7 +79,7 @@ class AdminHandler(BaseHandler):
             )
 
     async def show_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает список участников белого списка (включая пользователей без username)"""
+        """Показывает список участников белого списка (без Markdown)"""
         query = update.callback_query
         await query.answer()
 
@@ -96,18 +96,25 @@ class AdminHandler(BaseHandler):
             )
             return
 
-        text = "📋 Участники белого списка:\n\n"
+        text = "⭐ БЕЛЫЙ СПИСОК\n\n"
+        text += "Участники с особым доступом:\n\n"
+
         for idx, user in enumerate(users, 1):
             entry = self.whitelist_service.get_by_user(user)
             if entry:
                 role_name = entry.role.display_name
                 expires = f" (до {entry.expires_at.strftime('%d.%m.%Y')})" if entry.expires_at else " (бессрочно)"
 
-                # ✅ Показываем username или ID, если username нет
-                display_name = f"@{user.username}" if user.username else f"ID: {user.telegram_id}"
+                if user.username:
+                    display_name = f"@{user.username}"
+                else:
+                    display_name = f"ID: {user.telegram_id}"
+
+                if user.first_name:
+                    display_name += f" ({user.first_name})"
 
                 text += f"{idx}. {display_name}\n"
-                text += f"   {role_name}{expires}\n"
+                text += f"   Роль: {role_name}{expires}\n"
                 if entry.reason:
                     text += f"   Причина: {entry.reason}\n"
                 text += "\n"
@@ -116,6 +123,7 @@ class AdminHandler(BaseHandler):
             text,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("➕ Добавить", callback_data="admin_whitelist_add")],
+                [InlineKeyboardButton("❌ Удалить", callback_data="admin_whitelist_remove")],
                 [InlineKeyboardButton("◀️ Назад", callback_data="admin_menu")]
             ])
         )
@@ -405,11 +413,10 @@ class AdminHandler(BaseHandler):
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
     async def show_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает полную статистику с учётом пробных периодов и подписок"""
+        """Показывает полную статистику"""
         query = update.callback_query
         await query.answer()
 
-        # Подключаемся к базе данных
         from app.database import Database
         from app.config import config as app_config
         from repositories.subscription_repository import SubscriptionRepository
@@ -417,22 +424,18 @@ class AdminHandler(BaseHandler):
         db = Database(app_config.db_path)
         sub_repo = SubscriptionRepository(db)
 
-        # Получаем всех пользователей
         all_users = self.user_service.get_all_active()
         total_users = len(all_users)
 
-        # Пользователи в белом списке
         whitelist_users = self.whitelist_service.get_all_whitelist_users()
         whitelist_count = len(whitelist_users)
 
-        # Статистика по ролям
         stats = {role.value: 0 for role in WhitelistRole}
         for user in whitelist_users:
             role = self.whitelist_service.get_user_role(user)
             if role:
                 stats[role.value] = stats.get(role.value, 0) + 1
 
-        # ---- СТАТИСТИКА ПО ПОДПИСКАМ ----
         trial_users = []
         subscribed_users = []
         expired_users = []
@@ -440,14 +443,12 @@ class AdminHandler(BaseHandler):
         for user in all_users:
             subscription = sub_repo.get_by_user_id(user.id)
             if subscription:
-                # Проверяем, активен ли пробный период
                 if subscription.trial_start and subscription.trial_end:
                     now = datetime.now()
                     if subscription.trial_start <= now <= subscription.trial_end:
                         trial_users.append(user)
                         continue
 
-                # Проверяем активную подписку
                 if subscription.is_active and not subscription.is_expired:
                     subscribed_users.append(user)
                 elif subscription.is_expired:
@@ -457,19 +458,17 @@ class AdminHandler(BaseHandler):
         subscribed_count = len(subscribed_users)
         expired_count = len(expired_users)
 
-        # Формируем текст
-        text = "📊 **Статистика клуба**\n\n"
-        text += f"👥 Всего пользователей: **{total_users}**\n"
-        text += f"⭐ В белом списке: **{whitelist_count}**\n"
-        text += f"📊 Процент: **{round((whitelist_count / total_users * 100) if total_users > 0 else 0, 1)}%**\n\n"
+        text = "📊 СТАТИСТИКА КЛУБА\n\n"
+        text += f"👥 Всего пользователей: {total_users}\n"
+        text += f"⭐ В белом списке: {whitelist_count}\n"
+        text += f"📊 Процент: {round((whitelist_count / total_users * 100) if total_users > 0 else 0, 1)}%\n\n"
 
-        # Статистика по подпискам
-        text += "📋 **Подписки:**\n"
-        text += f"  🔰 Пробный период: **{trial_count}**\n"
-        text += f"  💎 Активная подписка: **{subscribed_count}**\n"
-        text += f"  ⏰ Истекла: **{expired_count}**\n\n"
+        text += "ПОДПИСКИ:\n"
+        text += f"  🔰 Пробный период: {trial_count}\n"
+        text += f"  💎 Активная подписка: {subscribed_count}\n"
+        text += f"  ⏰ Истекла: {expired_count}\n\n"
 
-        text += "👑 **Распределение по ролям:**\n"
+        text += "РАСПРЕДЕЛЕНИЕ ПО РОЛЯМ:\n"
         for role in WhitelistRole:
             count = stats.get(role.value, 0)
             if count > 0:
@@ -478,9 +477,8 @@ class AdminHandler(BaseHandler):
         if whitelist_count == 0:
             text += "  ❌ Белый список пуст\n"
 
-        # Список пользователей на пробном периоде
         if trial_count > 0:
-            text += "\n🔰 **Пользователи на пробном периоде:**\n"
+            text += "\nПользователи на пробном периоде:\n"
             for user in trial_users[:10]:
                 subscription = sub_repo.get_by_user_id(user.id)
                 if subscription:
@@ -490,9 +488,8 @@ class AdminHandler(BaseHandler):
             if trial_count > 10:
                 text += f"  ... и ещё {trial_count - 10}\n"
 
-        # Список пользователей с активной подпиской
         if subscribed_count > 0:
-            text += "\n💎 **Активная подписка:**\n"
+            text += "\nАктивная подписка:\n"
             for user in subscribed_users[:10]:
                 subscription = sub_repo.get_by_user_id(user.id)
                 if subscription:
@@ -501,10 +498,9 @@ class AdminHandler(BaseHandler):
             if subscribed_count > 10:
                 text += f"  ... и ещё {subscribed_count - 10}\n"
 
-        # Если нет данных о подписках
         if trial_count == 0 and subscribed_count == 0 and expired_count == 0:
-            text += "\nℹ️ Данные о подписках не найдены.\n"
-            text += "   Возможно, пользователи ещё не оформляли подписку.\n"
+            text += "\nДанные о подписках не найдены.\n"
+            text += "Возможно, пользователи ещё не оформляли подписку.\n"
 
         keyboard = [
             [InlineKeyboardButton("◀️ Назад", callback_data="admin_menu")]
@@ -512,8 +508,7 @@ class AdminHandler(BaseHandler):
 
         await query.edit_message_text(
             text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     async def add_self(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

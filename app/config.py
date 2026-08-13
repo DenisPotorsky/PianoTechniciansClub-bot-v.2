@@ -1,7 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
-from pathlib import Path
+from typing import List
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,9 +14,8 @@ class Config:
     YOOKASSA_SHOP_ID: str = os.getenv("YOOKASSA_SHOP_ID", "")
     YOOKASSA_SECRET_KEY: str = os.getenv("YOOKASSA_SECRET_KEY", "")
 
-    # База данных — путь внутри смонтированной директории
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///data/piano_club.db")
-    AGE_DB_PATH: str = os.getenv("AGE_DB_PATH", "/data/piano_age.db")
+    AGE_DB_PATH: str = os.getenv("AGE_DB_PATH", "piano_age.db")
 
     CHANNEL_URL: str = os.getenv("CHANNEL_URL", "https://t.me/piano_club_channel")
     CHAT_URL: str = os.getenv("CHAT_URL", "https://t.me/piano_club_chat")
@@ -33,10 +31,9 @@ class Config:
 
     @property
     def db_path(self) -> str:
-        """Получает путь к базе данных из DATABASE_URL"""
+        """Получает путь к базе данных"""
         if self.DATABASE_URL.startswith("sqlite:///"):
             path = self.DATABASE_URL.replace("sqlite:///", "")
-            # Создаём папку если её нет
             db_dir = os.path.dirname(path)
             if db_dir and not os.path.exists(db_dir):
                 os.makedirs(db_dir, exist_ok=True)
