@@ -1,5 +1,6 @@
 """
 Модуль для работы с базой данных возраста фортепиано
+(с поддержкой умляутов через Unidecode)
 """
 
 import sqlite3
@@ -7,6 +8,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 import re
+from unidecode import unidecode
 
 logger = logging.getLogger(__name__)
 
@@ -58,16 +60,12 @@ class AgeDatabase:
             conn.close()
 
     @staticmethod
-    def _replace_umlauts(text: str) -> str:
-        """Заменяет немецкие умляуты на обычные буквы"""
-        replacements = {
-            'ä': 'a', 'ö': 'o', 'ü': 'u',
-            'Ä': 'A', 'Ö': 'O', 'Ü': 'U',
-            'ß': 'ss'
-        }
-        for old, new in replacements.items():
-            text = text.replace(old, new)
-        return text
+    def normalize_text(text: str) -> str:
+        """Нормализует текст: убирает умляуты и приводит к нижнему регистру"""
+        if not text:
+            return text
+        # unidecode превращает Förster → Forster, Bösendorfer → Bosendorfer
+        return unidecode(text).lower()
 
     async def add_brand(self, name: str, country: str, info: str, brand_type: str) -> int:
         try:
@@ -85,75 +83,81 @@ class AgeDatabase:
                 return row['id'] if row else None
 
     async def get_brand_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Поиск бренда по названию (с поддержкой умляутов через unidecode)
+        """
         with self.get_connection() as conn:
             clean_name = name.strip()
+            normalized_input = self.normalize_text(clean_name)
 
-            # 1. Прямой поиск
-            cursor = conn.execute(
-                "SELECT * FROM brands WHERE LOWER(name) = LOWER(?)",
-                (clean_name,)
-            )
-            row = cursor.fetchone()
-            if row:
-                logger.info(f"✅ Найден бренд: {row['name']}")
-                return dict(row)
+            # Получаем все бренды
+            cursor = conn.execute("SELECT * FROM brands")
+            all_brands = cursor.fetchall()
 
-            # 2. Поиск без умляутов
-            name_no_umlaut = self._replace_umlauts(clean_name)
-            cursor = conn.execute(
-                "SELECT * FROM brands WHERE LOWER(name) = LOWER(?)",
-                (name_no_umlaut,)
-            )
-            row = cursor.fetchone()
-            if row:
-                logger.info(f"✅ Найден бренд (без умляутов): {row['name']}")
-                return dict(row)
+            for row in all_brands:
+                brand_dict = dict(row)
+                brand_name = brand_dict['name']
+                normalized_brand = self.normalize_text(brand_name)
 
-            # 3. Поиск по части названия
-            cursor = conn.execute(
-                "SELECT * FROM brands WHERE LOWER(name) LIKE LOWER(?)",
-                (f"%{clean_name}%",)
-            )
-            row = cursor.fetchone()
-            if row:
-                logger.info(f"✅ Найден бренд по частичному совпадению: {row['name']}")
-                return dict(row)
+                # Сравниваем нормализованные строки
+                if normalized_brand == normalized_input:
+                    logger.info(f"✅ Найден бренд: {brand_name}")
+                    return brand_dict
+
+            # Если не нашли — пробуем частичное совпадение
+            for row in all_brands:
+                brand_dict = dict(row)
+                brand_name = brand_dict['name']
+                normalized_brand = self.normalize_text(brand_name)
+
+                if normalized_input in normalized_brand:
+                    logger.info(f"✅ Найден бренд по частичному совпадению: {brand_name}")
+                    return brand_dict
 
             logger.info(f"❌ Бренд не найден: {clean_name}")
             return None
 
     async def search_brands(self, query: str, brand_type: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Поиск брендов по части названия (с поддержкой умляутов через unidecode)
+        """
         with self.get_connection() as conn:
             clean_query = query.strip().lower()
+            normalized_query = self.normalize_text(clean_query)
 
-            sql = "SELECT * FROM brands WHERE LOWER(name) LIKE LOWER(?)"
-            params = [f"%{clean_query}%"]
-
+            # Получаем все бренды
             if brand_type:
-                sql += " AND type = ?"
-                params.append(brand_type)
+                cursor = conn.execute("SELECT * FROM brands WHERE type = ?", (brand_type,))
+            else:
+                cursor = conn.execute("SELECT * FROM brands")
 
-            sql += " ORDER BY name LIMIT ?"
-            params.append(limit)
+            all_brands = cursor.fetchall()
+            results = []
+            seen_names = set()
 
-            cursor = conn.execute(sql, params)
-            results = [dict(row) for row in cursor.fetchall()]
+            for row in all_brands:
+                brand_dict = dict(row)
+                brand_name = brand_dict['name']
+                normalized_brand = self.normalize_text(brand_name)
+
+                # Проверяем совпадение
+                if normalized_query in normalized_brand:
+                    if brand_name not in seen_names:
+                        results.append(brand_dict)
+                        seen_names.add(brand_name)
+
+            # Сортируем по названию и ограничиваем
+            results.sort(key=lambda x: x['name'])
 
             if not results:
-                sql = "SELECT * FROM brands"
-                params = []
-
+                # Если ничего не нашли — показываем все бренды
                 if brand_type:
-                    sql += " WHERE type = ?"
-                    params.append(brand_type)
-
-                sql += " ORDER BY name LIMIT ?"
-                params.append(limit)
-
-                cursor = conn.execute(sql, params)
+                    cursor = conn.execute("SELECT * FROM brands WHERE type = ? ORDER BY name LIMIT ?", (brand_type, limit))
+                else:
+                    cursor = conn.execute("SELECT * FROM brands ORDER BY name LIMIT ?", (limit,))
                 results = [dict(row) for row in cursor.fetchall()]
 
-            return results
+            return results[:limit]
 
     async def add_serial_range(self, brand_id: int, serial_start: int, serial_end: int, year: int) -> int:
         with self.get_connection() as conn:
@@ -179,28 +183,18 @@ class AgeDatabase:
 
     async def get_all_brands(self, brand_type: Optional[str] = None) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
-            sql = "SELECT * FROM brands"
-            params = []
-
             if brand_type:
-                sql += " WHERE type = ?"
-                params.append(brand_type)
-
-            sql += " ORDER BY name"
-
-            cursor = conn.execute(sql, params)
+                cursor = conn.execute("SELECT * FROM brands WHERE type = ? ORDER BY name", (brand_type,))
+            else:
+                cursor = conn.execute("SELECT * FROM brands ORDER BY name")
             return [dict(row) for row in cursor.fetchall()]
 
     async def get_brand_count(self, brand_type: Optional[str] = None) -> int:
         with self.get_connection() as conn:
-            sql = "SELECT COUNT(*) as count FROM brands"
-            params = []
-
             if brand_type:
-                sql += " WHERE type = ?"
-                params.append(brand_type)
-
-            cursor = conn.execute(sql, params)
+                cursor = conn.execute("SELECT COUNT(*) as count FROM brands WHERE type = ?", (brand_type,))
+            else:
+                cursor = conn.execute("SELECT COUNT(*) as count FROM brands")
             row = cursor.fetchone()
             return row['count'] if row else 0
 
