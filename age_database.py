@@ -46,7 +46,6 @@ class AgeDatabase:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brands_name ON brands(name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_serial_ranges_brand ON serial_ranges(brand_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_serial_ranges_serial ON serial_ranges(serial_start, serial_end)")
-
             conn.commit()
 
     @contextmanager
@@ -57,6 +56,18 @@ class AgeDatabase:
             yield conn
         finally:
             conn.close()
+
+    @staticmethod
+    def _replace_umlauts(text: str) -> str:
+        """Заменяет немецкие умляуты на обычные буквы"""
+        replacements = {
+            'ä': 'a', 'ö': 'o', 'ü': 'u',
+            'Ä': 'A', 'Ö': 'O', 'Ü': 'U',
+            'ß': 'ss'
+        }
+        for old, new in replacements.items():
+            text = text.replace(old, new)
+        return text
 
     async def add_brand(self, name: str, country: str, info: str, brand_type: str) -> int:
         try:
@@ -74,62 +85,47 @@ class AgeDatabase:
                 return row['id'] if row else None
 
     async def get_brand_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """Поиск бренда (регистронезависимый, с частичным совпадением)"""
         with self.get_connection() as conn:
             clean_name = name.strip()
 
-            # 1. Точное совпадение
+            # 1. Прямой поиск
             cursor = conn.execute(
                 "SELECT * FROM brands WHERE LOWER(name) = LOWER(?)",
                 (clean_name,)
             )
             row = cursor.fetchone()
             if row:
+                logger.info(f"✅ Найден бренд: {row['name']}")
                 return dict(row)
 
-            # 2. Частичное совпадение (для названий с доп. данными в скобках)
+            # 2. Поиск без умляутов
+            name_no_umlaut = self._replace_umlauts(clean_name)
+            cursor = conn.execute(
+                "SELECT * FROM brands WHERE LOWER(name) = LOWER(?)",
+                (name_no_umlaut,)
+            )
+            row = cursor.fetchone()
+            if row:
+                logger.info(f"✅ Найден бренд (без умляутов): {row['name']}")
+                return dict(row)
+
+            # 3. Поиск по части названия
             cursor = conn.execute(
                 "SELECT * FROM brands WHERE LOWER(name) LIKE LOWER(?)",
                 (f"%{clean_name}%",)
             )
             row = cursor.fetchone()
             if row:
+                logger.info(f"✅ Найден бренд по частичному совпадению: {row['name']}")
                 return dict(row)
 
-            # 3. Поиск по первому слову
-            words = clean_name.split()
-            if words:
-                first_word = words[0]
-                if len(first_word) > 2:
-                    cursor = conn.execute(
-                        "SELECT * FROM brands WHERE LOWER(name) LIKE LOWER(?)",
-                        (f"{first_word}%",)
-                    )
-                    row = cursor.fetchone()
-                    if row:
-                        return dict(row)
-
-            # 4. Поиск по любому слову из запроса
-            for word in words:
-                if len(word) > 3:
-                    cursor = conn.execute(
-                        "SELECT * FROM brands WHERE LOWER(name) LIKE LOWER(?)",
-                        (f"%{word}%",)
-                    )
-                    row = cursor.fetchone()
-                    if row:
-                        return dict(row)
-
+            logger.info(f"❌ Бренд не найден: {clean_name}")
             return None
 
     async def search_brands(self, query: str, brand_type: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
-        """Поиск брендов по части названия (регистронезависимый)"""
         with self.get_connection() as conn:
             clean_query = query.strip().lower()
-            results = []
-            seen_names = set()
 
-            # 1. Основной поиск
             sql = "SELECT * FROM brands WHERE LOWER(name) LIKE LOWER(?)"
             params = [f"%{clean_query}%"]
 
@@ -141,34 +137,23 @@ class AgeDatabase:
             params.append(limit)
 
             cursor = conn.execute(sql, params)
-            for row in cursor.fetchall():
-                r = dict(row)
-                if r['name'] not in seen_names:
-                    results.append(r)
-                    seen_names.add(r['name'])
+            results = [dict(row) for row in cursor.fetchall()]
 
-            # 2. Если мало результатов, ищем по первому слову
-            if len(results) < 3 and len(clean_query.split()) > 1:
-                first_word = clean_query.split()[0]
-                if len(first_word) > 2:
-                    sql2 = "SELECT * FROM brands WHERE LOWER(name) LIKE LOWER(?)"
-                    params2 = [f"{first_word}%"]
+            if not results:
+                sql = "SELECT * FROM brands"
+                params = []
 
-                    if brand_type:
-                        sql2 += " AND type = ?"
-                        params2.append(brand_type)
+                if brand_type:
+                    sql += " WHERE type = ?"
+                    params.append(brand_type)
 
-                    sql2 += " ORDER BY name LIMIT ?"
-                    params2.append(limit)
+                sql += " ORDER BY name LIMIT ?"
+                params.append(limit)
 
-                    cursor2 = conn.execute(sql2, params2)
-                    for row in cursor2.fetchall():
-                        r = dict(row)
-                        if r['name'] not in seen_names:
-                            results.append(r)
-                            seen_names.add(r['name'])
+                cursor = conn.execute(sql, params)
+                results = [dict(row) for row in cursor.fetchall()]
 
-            return results[:limit]
+            return results
 
     async def add_serial_range(self, brand_id: int, serial_start: int, serial_end: int, year: int) -> int:
         with self.get_connection() as conn:

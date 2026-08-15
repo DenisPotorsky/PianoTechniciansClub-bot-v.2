@@ -15,7 +15,7 @@ class Config:
     YOOKASSA_SECRET_KEY: str = os.getenv("YOOKASSA_SECRET_KEY", "")
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///data/piano_club.db")
-    AGE_DB_PATH: str = os.getenv("AGE_DB_PATH", "piano_age.db")
+    AGE_DB_PATH: str = os.getenv("AGE_DB_PATH", "data/piano_age.db")
 
     CHANNEL_URL: str = os.getenv("CHANNEL_URL", "https://t.me/piano_club_channel")
     CHAT_URL: str = os.getenv("CHAT_URL", "https://t.me/piano_club_chat")
